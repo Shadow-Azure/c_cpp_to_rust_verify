@@ -79,14 +79,14 @@ jobs:
         id: compile
         run: |
           bash scripts/eval-compile.sh > /tmp/compile-result.json 2>/tmp/compile-detail.log
-          echo "result=$(cat /tmp/compile-result.json)" >> $GITHUB_OUTPUT
+          echo "result-file=/tmp/compile-result.json" >> $GITHUB_OUTPUT
 
       # --- 测试评测 ---
       - name: "Evaluate: Tests"
         id: tests
         run: |
           bash scripts/eval-tests.sh > /tmp/test-result.json 2>/tmp/test-detail.log
-          echo "result=$(cat /tmp/test-result.json)" >> $GITHUB_OUTPUT
+          echo "result-file=/tmp/test-result.json" >> $GITHUB_OUTPUT
 
       # --- 性能评测 ---
       - name: Install C build tools
@@ -96,7 +96,7 @@ jobs:
         id: perf
         run: |
           bash scripts/eval-performance.sh > /tmp/perf-result.json 2>/tmp/perf-detail.log
-          echo "result=$(cat /tmp/perf-result.json)" >> $GITHUB_OUTPUT
+          echo "result-file=/tmp/perf-result.json" >> $GITHUB_OUTPUT
 
       # --- 聚合评分 ---
       - name: "Aggregate: Score"
