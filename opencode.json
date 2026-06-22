@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "deepseek": {
+      "api": "https://api.deepseek.com"
+    }
+  },
+  "model": "deepseek/deepseek-v4-flash",
+  "skills": {
+    "paths": [".opencode/skills"]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "weights": {
+    "compile": 0.5,
+    "test": 0.3,
+    "performance": 0.2
+  },
+  "compile": {
+    "check_warnings": false,
+    "write_granularity_matrix": [1]
+  },
+  "test": {
+    "require_all_pass": true,
+    "coverage_threshold": 0.0
+  },
+  "performance": {
+    "max_regression_ratio": 1.5,
+    "metrics": [
+      "kvdb_set_string",
+      "kvdb_set_blob",
+      "kvdb_get_string",
+      "kvdb_get_blob",
+      "kvdb_update",
+      "kvdb_iterate",
+      "kvdb_delete",
+      "tsdb_append",
+      "tsdb_iterate",
+      "tsdb_iter_by_time",
+      "tsdb_query_count"
+    ]
+  }
+}

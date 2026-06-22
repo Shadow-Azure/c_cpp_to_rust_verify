@@ -1,0 +1,137 @@
+name: FlashDB C→Rust Migration Evaluation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ============================================================
+  # Job 1: 使用 OpenCode + Skill 执行 C→Rust 转换
+  # ============================================================
+  convert:
+    name: "Convert: FlashDB C → Rust"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # 使用 Environment Secrets，只有审批通过后才会注入 API key
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenCode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
+      - name: Run OpenCode conversion
+        env:
+          # DeepSeek API key，从 Environment Secrets 读取
+          # 需在 Settings > Environments > production > Secrets 中配置
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          opencode run \
+            --model "deepseek/deepseek-v4-flash" \
+            --agent build \
+            --prompt "/flashdb-c2rust" \
+            --title "FlashDB C→Rust conversion"
+
+      - name: Upload converted Rust code
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-flashdb
+          path: rust-flashdb/
+          retention-days: 7
+
+  # ============================================================
+  # Job 2: 评测转换结果
+  # ============================================================
+  evaluate:
+    name: "Evaluate: Compile + Test + Performance"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: convert
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download converted Rust code
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-flashdb
+          path: rust-flashdb/
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y bc python3
+
+      # --- 编译评测 ---
+      - name: "Evaluate: Compilation"
+        id: compile
+        run: |
+          bash scripts/eval-compile.sh > /tmp/compile-result.json 2>/tmp/compile-detail.log
+          echo "result=$(cat /tmp/compile-result.json)" >> $GITHUB_OUTPUT
+
+      # --- 测试评测 ---
+      - name: "Evaluate: Tests"
+        id: tests
+        run: |
+          bash scripts/eval-tests.sh > /tmp/test-result.json 2>/tmp/test-detail.log
+          echo "result=$(cat /tmp/test-result.json)" >> $GITHUB_OUTPUT
+
+      # --- 性能评测 ---
+      - name: Install C build tools
+        run: sudo apt-get install -y gcc make
+
+      - name: "Evaluate: Performance"
+        id: perf
+        run: |
+          bash scripts/eval-performance.sh > /tmp/perf-result.json 2>/tmp/perf-detail.log
+          echo "result=$(cat /tmp/perf-result.json)" >> $GITHUB_OUTPUT
+
+      # --- 聚合评分 ---
+      - name: "Aggregate: Score"
+        id: score
+        run: |
+          python3 scripts/aggregate-score.py \
+            /tmp/compile-result.json \
+            /tmp/test-result.json \
+            /tmp/perf-result.json \
+            /tmp/eval-report.md
+
+      # --- 输出报告 ---
+      - name: "Report: Job Summary"
+        if: always()
+        run: |
+          if [ -f /tmp/eval-report.md ]; then
+            cat /tmp/eval-report.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ⚠️ 评测报告生成失败" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "请检查转换 Job 的输出。" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: |
+            /tmp/eval-report.md
+            /tmp/compile-result.json
+            /tmp/test-result.json
+            /tmp/perf-result.json
+          retention-days: 30
+
+      - name: Fail if evaluation failed
+        if: steps.score.outcome == 'failure'
+        run: exit 1

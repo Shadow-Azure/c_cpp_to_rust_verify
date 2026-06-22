@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""
+aggregate-score.py — 聚合编译、测试、性能三个维度的评测结果，生成最终报告。
+
+用法: python3 scripts/aggregate-score.py <compile.json> <test.json> <perf.json> [output.md]
+
+输出: 评测报告 (Markdown 格式) 写入 output.md 或 stdout。
+"""
+
+import json
+import sys
+from pathlib import Path
+
+def load_json(path: str) -> dict:
+    with open(path) as f:
+        return json.load(f)
+
+def score_compile(result: dict) -> float:
+    """编译评分: 通过=1.0, 失败=0.0"""
+    return 1.0 if result.get("pass", False) else 0.0
+
+def score_test(result: dict) -> float:
+    """测试评分: 通过率 = passed / total, 全部通过=1.0"""
+    total = result.get("total", 0)
+    if total == 0:
+        return 0.0
+    passed = result.get("passed", 0)
+    return passed / total
+
+def score_performance(result: dict) -> float:
+    """性能评分: 基于平均比率。ratio <= 1.0 = 满分, ratio >= max_ratio = 0分"""
+    avg_ratio = result.get("avg_ratio", 0)
+    max_ratio = result.get("max_ratio_allowed", 1.5)
+
+    if avg_ratio <= 0:
+        return 0.0
+    if avg_ratio <= 1.0:
+        return 1.0
+    if avg_ratio >= max_ratio:
+        return 0.0
+    # 线性插值: ratio=1.0 → score=1.0, ratio=max_ratio → score=0.0
+    return max(0.0, (max_ratio - avg_ratio) / (max_ratio - 1.0))
+
+def grade(score: float) -> str:
+    if score >= 0.9:
+        return "A"
+    elif score >= 0.8:
+        return "B"
+    elif score >= 0.7:
+        return "C"
+    elif score >= 0.6:
+        return "D"
+    else:
+        return "F"
+
+def generate_report(
+    compile_result: dict,
+    test_result: dict,
+    perf_result: dict,
+    weights: dict,
+) -> str:
+    compile_w = weights.get("compile", 0.5)
+    test_w = weights.get("test", 0.3)
+    perf_w = weights.get("performance", 0.2)
+
+    s_compile = score_compile(compile_result)
+    s_test = score_test(test_result)
+    s_perf = score_performance(perf_result)
+
+    total = s_compile * compile_w + s_test * test_w + s_perf * perf_w
+
+    lines = []
+    lines.append("# FlashDB C→Rust 迁移评测报告\n")
+    lines.append(f"## 总分: {total:.1%} (等级: {grade(total)})\n")
+    lines.append(f"| 维度 | 权重 | 得分 | 状态 |")
+    lines.append(f"|------|------|------|------|")
+    lines.append(f"| 编译 | {compile_w:.0%} | {s_compile:.1%} | {'✅ 通过' if compile_result.get('pass') else '❌ 失败'} |")
+    lines.append(f"| 测试 | {test_w:.0%} | {s_test:.1%} | {'✅ 通过' if test_result.get('pass') else '❌ 失败'} |")
+    lines.append(f"| 性能 | {perf_w:.0%} | {s_perf:.1%} | {'✅ 达标' if perf_result.get('pass') else '❌ 不达标'} |")
+    lines.append("")
+
+    # 编译详情
+    lines.append("## 编译详情\n")
+    lines.append(f"- 编译错误数: {compile_result.get('errors', 'N/A')}")
+    lines.append(f"- 编译警告数: {compile_result.get('warnings', 'N/A')}")
+    lines.append("")
+
+    # 测试详情
+    lines.append("## 测试详情\n")
+    lines.append(f"- 通过: {test_result.get('passed', 0)}")
+    lines.append(f"- 失败: {test_result.get('failed', 0)}")
+    lines.append(f"- 忽略: {test_result.get('ignored', 0)}")
+    lines.append(f"- 总计: {test_result.get('total', 0)}")
+    lines.append("")
+
+    # 性能详情
+    lines.append("## 性能详情\n")
+    lines.append(f"- 平均性能比: {perf_result.get('avg_ratio', 'N/A')}x (基准: ≤{perf_result.get('max_ratio_allowed', 1.5)}x)")
+    lines.append("")
+    lines.append("| 指标 | C 基线 (μs) | Rust (μs) | 比率 | 状态 |")
+    lines.append("|------|-------------|-----------|------|------|")
+
+    c_base = perf_result.get("c_baseline", {})
+    rust_res = perf_result.get("rust_result", {})
+    ratios = perf_result.get("ratios", {})
+    max_r = perf_result.get("max_ratio_allowed", 1.5)
+
+    metric_labels = {
+        "kvdb_set_string": "KVDB Set (String)",
+        "kvdb_set_blob": "KVDB Set (Blob)",
+        "kvdb_get_string": "KVDB Get (String)",
+        "kvdb_get_blob": "KVDB Get (Blob)",
+        "kvdb_update": "KVDB Update",
+        "kvdb_iterate": "KVDB Iterate",
+        "kvdb_delete": "KVDB Delete",
+        "tsdb_append": "TSDB Append",
+        "tsdb_iterate": "TSDB Iterate",
+        "tsdb_iter_by_time": "TSDB Iter by Time",
+        "tsdb_query_count": "TSDB Query Count",
+    }
+
+    for key, label in metric_labels.items():
+        c_val = c_base.get(f"{key}_us", 0)
+        r_val = rust_res.get(f"{key}_us", 0)
+        ratio = ratios.get(key, 0)
+        status = "✅" if 0 < ratio <= max_r else ("⚠️" if ratio == 0 else "❌")
+        lines.append(f"| {label} | {c_val} | {r_val} | {ratio}x | {status} |")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("*由 c_cpp_to_rust_verify 自动生成*")
+
+    return "\n".join(lines)
+
+def main():
+    if len(sys.argv) < 4:
+        print("用法: python3 aggregate-score.py <compile.json> <test.json> <perf.json> [output.md]", file=sys.stderr)
+        sys.exit(1)
+
+    compile_file = sys.argv[1]
+    test_file = sys.argv[2]
+    perf_file = sys.argv[3]
+    output_file = sys.argv[4] if len(sys.argv) > 4 else None
+
+    # 加载评测配置
+    config_path = Path(compile_file).parent.parent / "eval-config.json"
+    weights = {"compile": 0.5, "test": 0.3, "performance": 0.2}
+    if config_path.exists():
+        with open(config_path) as f:
+            cfg = json.load(f)
+            weights = cfg.get("weights", weights)
+
+    compile_result = load_json(compile_file)
+    test_result = load_json(test_file)
+    perf_result = load_json(perf_file)
+
+    report = generate_report(compile_result, test_result, perf_result, weights)
+
+    if output_file:
+        with open(output_file, "w") as f:
+            f.write(report)
+        print(f"Report written to {output_file}", file=sys.stderr)
+    else:
+        print(report)
+
+if __name__ == "__main__":
+    main()
