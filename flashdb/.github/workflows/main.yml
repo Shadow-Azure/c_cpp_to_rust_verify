@@ -1,0 +1,31 @@
+name: Linux CI
+on: [push, pull_request]
+jobs:
+  unit-test:
+    name: "Unit Test (GRAN=${{ matrix.write_gran }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        write_gran: [1, 8, 32, 64, 128, 256]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build and run KVDB test
+      run: |
+        sed -i "s/^#define FDB_WRITE_GRAN.*$/#define FDB_WRITE_GRAN ${write_gran}/" tests/fdb_cfg.h
+        make clean && make kvdb_test tsdb_test
+        ./kvdb_test
+        ./tsdb_test
+      working-directory: tests
+      env:
+        write_gran: ${{ matrix.write_gran }}
+  benchmark:
+    name: "Benchmark (GRAN=1)"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build and run benchmark
+      run: |
+        make clean && make bench
+        ./fdb_bench
+      working-directory: tests/benchmark
