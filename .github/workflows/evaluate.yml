@@ -38,8 +38,8 @@ jobs:
           opencode run \
             --model "deepseek/deepseek-v4-flash" \
             --agent build \
-            --prompt "/flashdb-c2rust" \
-            --title "FlashDB C→Rust conversion"
+            --title "FlashDB C→Rust conversion" \
+            "/flashdb-c2rust"
 
       - name: Upload converted Rust code
         uses: actions/upload-artifact@v4
