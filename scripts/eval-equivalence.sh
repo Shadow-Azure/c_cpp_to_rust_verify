@@ -18,7 +18,7 @@ FFI_RS="$RUST_DIR/src/ffi.rs"
 # 从 rust_ffi.h 提取期望的函数名 (fdb_rust_* 函数)
 EXPECTED_FUNCS=""
 if [ -f "$FFI_H" ]; then
-  EXPECTED_FUNCS=$(grep -oE 'fdb_rust_[a-z_]+' "$FFI_H" | sort -u)
+  EXPECTED_FUNCS=$(grep -oE 'fdb_rust_[a-z0-9_]+' "$FFI_H" | sort -u)
 fi
 EXPECTED_COUNT=$(echo "$EXPECTED_FUNCS" | grep -c . || true)
 
@@ -26,7 +26,7 @@ EXPECTED_COUNT=$(echo "$EXPECTED_FUNCS" | grep -c . || true)
 IMPLEMENTED_FUNCS=""
 if [ -f "$FFI_RS" ]; then
   # 匹配 "pub extern "C" fn fdb_rust_*" 模式
-  IMPLEMENTED_FUNCS=$(grep -oE 'fdb_rust_[a-z_]+' "$FFI_RS" | sort -u)
+  IMPLEMENTED_FUNCS=$(grep -oE 'fdb_rust_[a-z0-9_]+' "$FFI_RS" | sort -u)
 fi
 IMPLEMENTED_COUNT=$(echo "$IMPLEMENTED_FUNCS" | grep -c . || true)
 
@@ -69,7 +69,7 @@ fi
 cd "$FFI_DIR"
 rm -rf build
 
-if ! make c-lib 2>/tmp/equiv-c-build.log; then
+if ! make c-lib >/tmp/equiv-c-build.log 2>&1; then
   printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "message": "C library build failed"}\n' \
     "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT"
   exit 0
@@ -84,7 +84,7 @@ RUST_BUILD_OK=false
 RUST_ERROR=""
 
 # 尝试 cargo build --release，超时 10 分钟
-if timeout 600 cargo build --release 2>/tmp/equiv-rust-build.log; then
+if timeout 600 cargo build --release >/tmp/equiv-rust-build.log 2>&1; then
   # 查找编译产物
   RUST_LIB=""
   for lib in target/release/libflashdb.a target/release/libflashdb.rlib; do
@@ -127,7 +127,7 @@ if ! cc -O0 -g3 -Wall -Wno-format \
     compare_tests.c \
     build/libflashdb_c.a \
     build/libflashdb_rust.a \
-    -lpthread 2>/tmp/equiv-compile.log; then
+    -lpthread >/tmp/equiv-compile.log 2>&1; then
   LINK_ERROR=$(head -3 /tmp/equiv-compile.log 2>/dev/null | tr '\n' ' ' | head -c 200)
   printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "link_error": "%s", "message": "compare_tests link failed"}\n' \
     "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$LINK_ERROR"
