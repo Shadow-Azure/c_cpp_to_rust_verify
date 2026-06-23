@@ -29,14 +29,12 @@ if [ "$EXIT_CODE" -eq 0 ]; then
 fi
 
 # 输出 JSON
-cat <<EOF
-{
-  "pass": ${PASS},
-  "exit_code": ${EXIT_CODE},
-  "errors": ${ERROR_COUNT},
-  "warnings": ${WARNING_COUNT}
-}
-EOF
+printf '{\n'
+printf '  "pass": %s,\n' "$PASS"
+printf '  "exit_code": %d,\n' "$EXIT_CODE"
+printf '  "errors": %d,\n' "$ERROR_COUNT"
+printf '  "warnings": %d\n' "$WARNING_COUNT"
+printf '}\n'
 
 # 同时输出详细编译日志到 stderr
 if [ "$EXIT_CODE" -ne 0 ]; then
