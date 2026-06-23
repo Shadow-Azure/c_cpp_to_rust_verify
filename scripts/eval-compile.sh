@@ -2,15 +2,13 @@
 # eval-compile.sh — 评测 Rust 代码是否能编译通过
 # 输出 JSON 结果到 stdout
 
-set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RUST_DIR="${PROJECT_ROOT}/rust-flashdb"
 
 if [ ! -d "$RUST_DIR" ]; then
   echo '{"pass": false, "errors": -1, "warnings": -1, "detail": "rust-flashdb/ directory not found"}'
-  exit 1
+  exit 0
 fi
 
 cd "$RUST_DIR"
@@ -45,3 +43,5 @@ if [ "$EXIT_CODE" -ne 0 ]; then
   echo "--- Compile Errors ---" >&2
   echo "$BUILD_OUTPUT" >&2
 fi
+
+exit 0

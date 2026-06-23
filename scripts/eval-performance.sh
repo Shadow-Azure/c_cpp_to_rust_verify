@@ -3,8 +3,6 @@
 # 先编译运行 C benchmark 获取基线，再运行 Rust benchmark 对比
 # 输出 JSON 结果到 stdout
 
-set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FLASHDB_DIR="${PROJECT_ROOT}/flashdb"
@@ -38,7 +36,7 @@ echo "$C_OUTPUT" > "$C_RESULT_FILE"
 # 解析 C 结果: 提取每项指标的平均耗时 (微秒)
 parse_c_metric() {
   local metric="$1"
-  echo "$C_OUTPUT" | grep -i "$metric" | grep -oP 'avg:\s*\K[\d.]+' | head -1 || echo "0"
+  echo "$C_OUTPUT" | grep -i "$metric" | grep -o 'avg: *[0-9.]*' | grep -o '[0-9.]*' | head -1 || echo "0"
 }
 
 C_KVDB_SET_STRING=$(parse_c_metric "set.*string")
@@ -82,7 +80,7 @@ parse_rust_metric() {
   local metric="$1"
   # cargo bench 输出 ns/iter，转换为 us
   local ns
-  ns=$(echo "$RUST_OUTPUT" | grep -i "$metric" | grep -oP 'bench:\s*\K[\d,]+' | head -1 | tr -d ',')
+  ns=$(echo "$RUST_OUTPUT" | grep -i "$metric" | grep -o 'bench: *[0-9,]*' | grep -o '[0-9,]*' | tr -d ',' | head -1)
   if [ -n "$ns" ] && [ "$ns" != "0" ]; then
     echo "scale=2; $ns / 1000" | bc 2>/dev/null || echo "0"
   else
@@ -201,3 +199,4 @@ cat <<EOF
   }
 }
 EOF
+exit 0
