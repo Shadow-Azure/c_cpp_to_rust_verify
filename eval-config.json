@@ -1,8 +1,9 @@
 {
   "weights": {
-    "compile": 0.5,
-    "test": 0.3,
-    "performance": 0.2
+    "compile": 0.40,
+    "test": 0.20,
+    "equivalence": 0.25,
+    "performance": 0.15
   },
   "compile": {
     "check_warnings": false,

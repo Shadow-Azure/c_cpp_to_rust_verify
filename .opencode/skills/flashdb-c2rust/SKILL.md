@@ -42,7 +42,8 @@ rust-flashdb/
 │   │   ├── mod.rs      # TSDB 主实现
 │   │   ├── sector.rs   # sector 管理
 │   │   └── iter.rs     # 迭代器实现
-│   └── utils.rs        # CRC32, status table, blob 工具
+│   ├── utils.rs        # CRC32, status table, blob 工具
+│   └── ffi.rs          # C FFI 兼容层 (功能等价测试必需)
 ├── tests/
 │   ├── kvdb_test.rs    # KVDB 单元测试 (对应 tests/fdb_kvdb_tc.c)
 │   └── tsdb_test.rs    # TSDB 单元测试 (对应 tests/fdb_tsdb_tc.c)
@@ -149,6 +150,76 @@ GC_EMPTY_SEC_THRESHOLD = 1
 - 使用 `std::time::Instant` 测量 (Rust) vs `clock_gettime(CLOCK_MONOTONIC)` (C)
 - 输出每项操作的平均耗时 (微秒)
 
+## FFI 兼容层 (必需)
+
+在 `src/ffi.rs` 中实现 C 兼容的 FFI 函数。这些函数是功能等价测试的接口——CI 会编译一个 C 测试驱动，同时调用 C 原版和 Rust 转换版的 API，对比输出是否一致。
+
+### 要求
+- 所有函数使用 `#[no_mangle] extern "C"`
+- 数据库句柄使用不透明指针 (`*mut c_void`)
+- 错误码: 0=成功, -1=通用错误, -2=未找到, -3=写入失败
+- 字符串返回值由 Rust 分配 (`CString`)，调用者用完后必须调 `fdb_rust_free_string` 释放
+- blob 数据通过 `*const u8` + `usize` 传递
+
+### 必须实现的 FFI 函数
+
+```rust
+// 在 src/ffi.rs 中实现
+use std::ffi::{CString, CStr};
+use std::os::raw::{c_char, c_int, c_uint, c_void};
+
+// === CRC32 ===
+#[no_mangle]
+pub extern "C" fn fdb_rust_calc_crc32(crc: c_uint, buf: *const u8, size: usize) -> c_uint
+
+// === KVDB ===
+#[no_mangle]
+pub extern "C" fn fdb_rust_kvdb_init(name: *const c_char, path: *const c_char) -> *mut c_void
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_kvdb_deinit(db: *mut c_void)
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_kv_set(db: *mut c_void, key: *const c_char, value: *const c_char) -> c_int
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_kv_get(db: *mut c_void, key: *const c_char) -> *mut c_char
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_free_string(s: *mut c_char)
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_kv_del(db: *mut c_void, key: *const c_char) -> c_int
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_kv_set_blob(db: *mut c_void, key: *const c_char, data: *const u8, len: usize) -> c_int
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_kv_get_blob(db: *mut c_void, key: *const c_char, buf: *mut u8, buf_len: usize) -> isize
+
+// === TSDB ===
+#[no_mangle]
+pub extern "C" fn fdb_rust_tsdb_init(name: *const c_char, path: *const c_char, max_len: usize) -> *mut c_void
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_tsdb_deinit(db: *mut c_void)
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_tsl_append(db: *mut c_void, data: *const u8, len: usize, timestamp: c_uint) -> c_int
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_tsl_query_count(db: *mut c_void, from: c_uint, to: c_uint) -> usize
+
+#[no_mangle]
+pub extern "C" fn fdb_rust_tsl_clean(db: *mut c_void)
+```
+
+### 实现要点
+- `fdb_rust_kvdb_init` 内部创建 `Kvdb` 实例，转为 `Box` 再转为 `*mut c_void` 返回
+- `fdb_rust_kv_get` 用 `CString::into_raw()` 返回，`fdb_rust_free_string` 用 `CString::from_raw()` 释放
+- KVDB 初始化参数固定: 4 sectors × 4096 bytes (与 C 测试一致)
+- TSDB 初始化参数固定: 16 sectors × 4096 bytes, max_len 由参数传入
+
 ## 实现优先级
 
 1. **types.rs** — 所有结构体和枚举
@@ -157,8 +228,9 @@ GC_EMPTY_SEC_THRESHOLD = 1
 4. **db.rs** — 初始化框架
 5. **kvdb/** — KVDB 完整实现
 6. **tsdb/** — TSDB 完整实现
-7. **tests/** — 单元测试
-8. **benches/** — 性能基准
+7. **ffi.rs** — C FFI 兼容层 (**必需，用于功能等价测试**)
+8. **tests/** — 单元测试
+9. **benches/** — 性能基准
 
 ## 注意事项
 

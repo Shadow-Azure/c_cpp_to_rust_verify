@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-aggregate-score.py — 聚合编译、测试、性能三个维度的评测结果，生成最终报告。
+aggregate-score.py — 聚合编译、测试、功能等价、性能四个维度的评测结果，生成最终报告。
 
-用法: python3 scripts/aggregate-score.py <compile.json> <test.json> <perf.json> [output.md]
+用法: python3 scripts/aggregate-score.py <compile.json> <test.json> <equiv.json> <perf.json> [output.md]
 
 输出: 评测报告 (Markdown 格式) 写入 output.md 或 stdout。
 """
@@ -30,6 +30,17 @@ def score_compile(result: dict) -> float:
 
 def score_test(result: dict) -> float:
     """测试评分: 通过率 = passed / total, 全部通过=1.0"""
+    total = result.get("total", 0)
+    if total == 0:
+        return 0.0
+    passed = result.get("passed", 0)
+    return passed / total
+
+
+def score_equivalence(result: dict) -> float:
+    """功能等价评分: 通过率 = passed / total, 无 FFI 时返回 0"""
+    if not result.get("ffi_present", False):
+        return 0.0
     total = result.get("total", 0)
     if total == 0:
         return 0.0
@@ -96,18 +107,21 @@ def grade(score: float) -> str:
 def generate_report(
     compile_result: dict,
     test_result: dict,
+    equiv_result: dict,
     perf_result: dict,
     weights: dict,
 ) -> str:
-    compile_w = weights.get("compile", 0.5)
-    test_w = weights.get("test", 0.3)
-    perf_w = weights.get("performance", 0.2)
+    compile_w = weights.get("compile", 0.40)
+    test_w = weights.get("test", 0.20)
+    equiv_w = weights.get("equivalence", 0.25)
+    perf_w = weights.get("performance", 0.15)
 
     s_compile = score_compile(compile_result)
     s_test = score_test(test_result)
+    s_equiv = score_equivalence(equiv_result)
     s_perf = score_performance(perf_result)
 
-    total = s_compile * compile_w + s_test * test_w + s_perf * perf_w
+    total = s_compile * compile_w + s_test * test_w + s_equiv * equiv_w + s_perf * perf_w
 
     # Compute perf ratios for report
     perf_data = compute_perf_ratios(perf_result)
@@ -122,6 +136,7 @@ def generate_report(
     lines.append(f"|------|------|------|------|")
     lines.append(f"| 编译 | {compile_w:.0%} | {s_compile:.1%} | {'✅ 通过' if compile_result.get('pass') else '❌ 失败'} |")
     lines.append(f"| 测试 | {test_w:.0%} | {s_test:.1%} | {'✅ 通过' if test_result.get('pass') else '❌ 失败'} |")
+    lines.append(f"| 功能等价 | {equiv_w:.0%} | {s_equiv:.1%} | {'✅ 等价' if s_equiv > 0.9 else ('⚠️ 部分' if s_equiv > 0 else '❌ 无 FFI')} |")
     lines.append(f"| 性能 | {perf_w:.0%} | {s_perf:.1%} | {'✅ 达标' if s_perf > 0.5 else '❌ 不达标'} |")
     lines.append("")
 
@@ -143,6 +158,27 @@ def generate_report(
         lines.append(f"- 失败: {test_result.get('failed', 0)}")
         lines.append(f"- 忽略: {test_result.get('ignored', 0)}")
         lines.append(f"- 总计: {test_result.get('total', 0)}")
+    lines.append("")
+
+    # 功能等价详情
+    lines.append("## 功能等价详情\n")
+    if not equiv_result.get("ffi_present", False):
+        lines.append("- ⚠️ 未检测到 FFI 兼容层 (ffi.rs)")
+        lines.append("- Rust 代码需在 `src/ffi.rs` 中暴露 C 兼容函数")
+    elif "error" in equiv_result:
+        lines.append(f"- ⚠️ 错误: {equiv_result['error']}")
+    else:
+        lines.append(f"- 通过: {equiv_result.get('passed', 0)}")
+        lines.append(f"- 失败: {equiv_result.get('failed', 0)}")
+        lines.append(f"- 总计: {equiv_result.get('total', 0)}")
+        lines.append("")
+        details = equiv_result.get("details", {})
+        if details:
+            lines.append("| 类别 | 通过 | 失败 |")
+            lines.append("|------|------|------|")
+            for cat, label in [("crc32", "CRC32"), ("kvdb", "KVDB"), ("tsdb", "TSDB")]:
+                d = details.get(cat, {})
+                lines.append(f"| {label} | {d.get('passed', 0)} | {d.get('failed', 0)} |")
     lines.append("")
 
     # 性能详情
@@ -189,18 +225,19 @@ def generate_report(
 
 
 def main():
-    if len(sys.argv) < 4:
-        print("用法: python3 aggregate-score.py <compile.json> <test.json> <perf.json> [output.md]", file=sys.stderr)
+    if len(sys.argv) < 5:
+        print("用法: python3 aggregate-score.py <compile.json> <test.json> <equiv.json> <perf.json> [output.md]", file=sys.stderr)
         sys.exit(1)
 
     compile_file = sys.argv[1]
     test_file = sys.argv[2]
-    perf_file = sys.argv[3]
-    output_file = sys.argv[4] if len(sys.argv) > 4 else None
+    equiv_file = sys.argv[3]
+    perf_file = sys.argv[4]
+    output_file = sys.argv[5] if len(sys.argv) > 5 else None
 
     # 加载评测配置
     config_path = Path(compile_file).parent.parent / "eval-config.json"
-    weights = {"compile": 0.5, "test": 0.3, "performance": 0.2}
+    weights = {"compile": 0.40, "test": 0.20, "equivalence": 0.25, "performance": 0.15}
     if config_path.exists():
         try:
             with open(config_path) as f:
@@ -211,9 +248,10 @@ def main():
 
     compile_result = load_json(compile_file)
     test_result = load_json(test_file)
+    equiv_result = load_json(equiv_file)
     perf_result = load_json(perf_file)
 
-    report = generate_report(compile_result, test_result, perf_result, weights)
+    report = generate_report(compile_result, test_result, equiv_result, perf_result, weights)
 
     if output_file:
         with open(output_file, "w") as f:
