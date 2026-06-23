@@ -136,7 +136,18 @@ def generate_report(
     lines.append(f"|------|------|------|------|")
     lines.append(f"| 编译 | {compile_w:.0%} | {s_compile:.1%} | {'✅ 通过' if compile_result.get('pass') else '❌ 失败'} |")
     lines.append(f"| 测试 | {test_w:.0%} | {s_test:.1%} | {'✅ 通过' if test_result.get('pass') else '❌ 失败'} |")
-    lines.append(f"| 功能等价 | {equiv_w:.0%} | {s_equiv:.1%} | {'✅ 等价' if s_equiv > 0.9 else ('⚠️ 部分' if s_equiv > 0 else '❌ 无 FFI')} |")
+    # 功能等价状态: 有 API 覆盖率数据时显示覆盖率，否则显示测试结果
+    equiv_cov = equiv_result.get("api_coverage", {})
+    if equiv_cov and equiv_cov.get("expected", 0) > 0:
+        cov_pct = equiv_cov.get("implemented", 0) / equiv_cov["expected"]
+        equiv_status = f'✅ {cov_pct:.0%} API' if cov_pct > 0.9 else (f'⚠️ {cov_pct:.0%} API' if cov_pct > 0 else '❌ 无 API')
+    elif s_equiv > 0.9:
+        equiv_status = '✅ 等价'
+    elif s_equiv > 0:
+        equiv_status = '⚠️ 部分'
+    else:
+        equiv_status = '❌ 无 FFI'
+    lines.append(f"| 功能等价 | {equiv_w:.0%} | {s_equiv:.1%} | {equiv_status} |")
     lines.append(f"| 性能 | {perf_w:.0%} | {s_perf:.1%} | {'✅ 达标' if s_perf > 0.5 else '❌ 不达标'} |")
     lines.append("")
 
@@ -165,20 +176,45 @@ def generate_report(
     if not equiv_result.get("ffi_present", False):
         lines.append("- ⚠️ 未检测到 FFI 兼容层 (ffi.rs)")
         lines.append("- Rust 代码需在 `src/ffi.rs` 中暴露 C 兼容函数")
-    elif "error" in equiv_result:
-        lines.append(f"- ⚠️ 错误: {equiv_result['error']}")
     else:
-        lines.append(f"- 通过: {equiv_result.get('passed', 0)}")
-        lines.append(f"- 失败: {equiv_result.get('failed', 0)}")
-        lines.append(f"- 总计: {equiv_result.get('total', 0)}")
-        lines.append("")
-        details = equiv_result.get("details", {})
-        if details:
-            lines.append("| 类别 | 通过 | 失败 |")
-            lines.append("|------|------|------|")
+        # API 覆盖率
+        cov = equiv_result.get("api_coverage", {})
+        if cov:
+            exp = cov.get("expected", 0)
+            imp = cov.get("implemented", 0)
+            pct = (imp / exp * 100) if exp > 0 else 0
+            lines.append(f"### API 覆盖率: {imp}/{exp} ({pct:.0f}%)\n")
+            lines.append("| 类别 | 期望 | 实现 | 覆盖率 |")
+            lines.append("|------|------|------|--------|")
             for cat, label in [("crc32", "CRC32"), ("kvdb", "KVDB"), ("tsdb", "TSDB")]:
-                d = details.get(cat, {})
-                lines.append(f"| {label} | {d.get('passed', 0)} | {d.get('failed', 0)} |")
+                c = cov.get(cat, {})
+                e = c.get("expected", 0)
+                i = c.get("implemented", 0)
+                p = (i / e * 100) if e > 0 else 0
+                lines.append(f"| {label} | {e} | {i} | {p:.0f}% |")
+            lines.append("")
+
+        # Rust 构建错误
+        if "rust_build_error" in equiv_result:
+            lines.append(f"- ❌ Rust 构建失败: {equiv_result['rust_build_error'][:100]}")
+        elif "link_error" in equiv_result:
+            lines.append(f"- ❌ 链接失败: {equiv_result['link_error'][:100]}")
+        elif "error" in equiv_result:
+            lines.append(f"- ⚠️ 错误: {equiv_result['error']}")
+        else:
+            # 测试结果
+            lines.append(f"### 对比测试结果\n")
+            lines.append(f"- 通过: {equiv_result.get('passed', 0)}")
+            lines.append(f"- 失败: {equiv_result.get('failed', 0)}")
+            lines.append(f"- 总计: {equiv_result.get('total', 0)}")
+            lines.append("")
+            details = equiv_result.get("details", {})
+            if details:
+                lines.append("| 类别 | 通过 | 失败 |")
+                lines.append("|------|------|------|")
+                for cat, label in [("crc32", "CRC32"), ("kvdb", "KVDB"), ("tsdb", "TSDB")]:
+                    d = details.get(cat, {})
+                    lines.append(f"| {label} | {d.get('passed', 0)} | {d.get('failed', 0)} |")
     lines.append("")
 
     # 性能详情

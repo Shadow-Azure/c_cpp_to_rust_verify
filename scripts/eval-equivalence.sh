@@ -1,47 +1,87 @@
 #!/usr/bin/env bash
 # eval-equivalence.sh — 评测 Rust 转换版与 C 原版的功能等价性
-# 通过 FFI 接口调用两个实现，对比输出是否一致
+# 1. API 覆盖率: 对比 rust_ffi.h 声明 vs ffi.rs 实现
+# 2. 功能等价: 通过 FFI 调用两个实现，对比输出
 # 输出 JSON 结果到 stdout
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 RUST_DIR="$ROOT_DIR/rust-flashdb"
 FFI_DIR="$ROOT_DIR/ffi-compare"
+FFI_H="$FFI_DIR/rust_ffi.h"
+FFI_RS="$RUST_DIR/src/ffi.rs"
+
+# ============================================================
+# 1. API 覆盖率分析
+# ============================================================
+
+# 从 rust_ffi.h 提取期望的函数名 (fdb_rust_* 函数)
+EXPECTED_FUNCS=""
+if [ -f "$FFI_H" ]; then
+  EXPECTED_FUNCS=$(grep -oE 'fdb_rust_[a-z_]+' "$FFI_H" | sort -u)
+fi
+EXPECTED_COUNT=$(echo "$EXPECTED_FUNCS" | grep -c . || true)
+
+# 从 ffi.rs 提取实际实现的 #[no_mangle] extern "C" 函数
+IMPLEMENTED_FUNCS=""
+if [ -f "$FFI_RS" ]; then
+  # 匹配 "pub extern "C" fn fdb_rust_*" 模式
+  IMPLEMENTED_FUNCS=$(grep -oE 'fdb_rust_[a-z_]+' "$FFI_RS" | sort -u)
+fi
+IMPLEMENTED_COUNT=$(echo "$IMPLEMENTED_FUNCS" | grep -c . || true)
+
+# 计算各类别覆盖率
+CRC_EXPECTED=$(echo "$EXPECTED_FUNCS" | grep -c "crc32" || true)
+CRC_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "crc32" || true)
+
+KV_EXPECTED=$(echo "$EXPECTED_FUNCS" | grep -c "kvdb\|kv_" || true)
+KV_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "kvdb\|kv_" || true)
+
+TS_EXPECTED=$(echo "$EXPECTED_FUNCS" | grep -c "tsdb\|tsl_" || true)
+TS_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "tsdb\|tsl_" || true)
+
+# free_string 是通用函数
+FREE_EXPECTED=$(echo "$EXPECTED_FUNCS" | grep -c "free_string" || true)
+FREE_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "free_string" || true)
 
 # ============================================================
 # 检查前提条件
 # ============================================================
 
 # 检查 ffi.rs 是否存在
-if [ ! -f "$RUST_DIR/src/ffi.rs" ]; then
-  printf '{"pass": false, "ffi_present": false, "passed": 0, "failed": 0, "total": 0, "message": "ffi.rs not found in rust-flashdb/src/"}\n'
+if [ ! -f "$FFI_RS" ]; then
+  printf '{"pass": false, "ffi_present": false, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": 0, "crc32": {"expected": %d, "implemented": 0}, "kvdb": {"expected": %d, "implemented": 0}, "tsdb": {"expected": %d, "implemented": 0}}, "message": "ffi.rs not found"}\n' \
+    "$EXPECTED_COUNT" "$CRC_EXPECTED" "$KV_EXPECTED" "$TS_EXPECTED"
   exit 0
 fi
 
 # 检查 rust-flashdb 是否存在
 if [ ! -d "$RUST_DIR" ] || [ ! -f "$RUST_DIR/Cargo.toml" ]; then
-  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "message": "rust-flashdb/ not found or no Cargo.toml"}\n'
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d, "crc32": {"expected": %d, "implemented": %d}, "kvdb": {"expected": %d, "implemented": %d}, "tsdb": {"expected": %d, "implemented": %d}}, "message": "rust-flashdb/ not found"}\n' \
+    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$CRC_EXPECTED" "$CRC_IMPLEMENTED" "$KV_EXPECTED" "$KV_IMPLEMENTED" "$TS_EXPECTED" "$TS_IMPLEMENTED"
   exit 0
 fi
 
 # ============================================================
-# 构建 C 静态库
+# 2. 构建 C 静态库
 # ============================================================
 
 cd "$FFI_DIR"
 rm -rf build
 
 if ! make c-lib 2>/tmp/equiv-c-build.log; then
-  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "message": "C library build failed"}\n'
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "message": "C library build failed"}\n' \
+    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT"
   exit 0
 fi
 
 # ============================================================
-# 构建 Rust 静态库
+# 3. 构建 Rust 静态库
 # ============================================================
 
 cd "$RUST_DIR"
 RUST_BUILD_OK=false
+RUST_ERROR=""
 
 # 尝试 cargo build --release，超时 10 分钟
 if timeout 600 cargo build --release 2>/tmp/equiv-rust-build.log; then
@@ -57,16 +97,21 @@ if timeout 600 cargo build --release 2>/tmp/equiv-rust-build.log; then
   if [ -n "$RUST_LIB" ]; then
     cp "$RUST_LIB" "$FFI_DIR/build/libflashdb_rust.a"
     RUST_BUILD_OK=true
+  else
+    RUST_ERROR="Rust library file not found after build (no .a or .rlib)"
   fi
+else
+  RUST_ERROR=$(head -5 /tmp/equiv-rust-build.log 2>/dev/null | tr '\n' ' ' | head -c 200)
 fi
 
 if [ "$RUST_BUILD_OK" = false ]; then
-  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "message": "Rust library build failed"}\n'
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d, "crc32": {"expected": %d, "implemented": %d}, "kvdb": {"expected": %d, "implemented": %d}, "tsdb": {"expected": %d, "implemented": %d}}, "rust_build_error": "%s", "message": "Rust library build failed"}\n' \
+    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$CRC_EXPECTED" "$CRC_IMPLEMENTED" "$KV_EXPECTED" "$KV_IMPLEMENTED" "$TS_EXPECTED" "$TS_IMPLEMENTED" "$RUST_ERROR"
   exit 0
 fi
 
 # ============================================================
-# 编译并运行对比测试
+# 4. 编译并运行对比测试
 # ============================================================
 
 cd "$FFI_DIR"
@@ -83,7 +128,9 @@ if ! cc -O0 -g3 -Wall -Wno-format \
     build/libflashdb_c.a \
     build/libflashdb_rust.a \
     -lpthread 2>/tmp/equiv-compile.log; then
-  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "message": "compare_tests compilation failed"}\n'
+  LINK_ERROR=$(head -3 /tmp/equiv-compile.log 2>/dev/null | tr '\n' ' ' | head -c 200)
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "link_error": "%s", "message": "compare_tests link failed"}\n' \
+    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$LINK_ERROR"
   exit 0
 fi
 
@@ -91,7 +138,7 @@ fi
 TEST_OUTPUT=$(timeout 300 build/compare_tests 2>&1) || true
 
 # ============================================================
-# 解析测试结果
+# 5. 解析测试结果
 # ============================================================
 
 # 解析 PASS/FAIL 统计
@@ -118,7 +165,7 @@ if [ "$TOTAL" -gt 0 ] && [ "$FAILED" -eq 0 ]; then
 fi
 
 # ============================================================
-# 输出 JSON (用 printf 确保格式干净)
+# 6. 输出 JSON (用 printf 确保格式干净)
 # ============================================================
 
 printf '{\n'
@@ -127,6 +174,13 @@ printf '  "ffi_present": true,\n'
 printf '  "passed": %d,\n' "$PASSED"
 printf '  "failed": %d,\n' "$FAILED"
 printf '  "total": %d,\n' "$TOTAL"
+printf '  "api_coverage": {\n'
+printf '    "expected": %d,\n' "$EXPECTED_COUNT"
+printf '    "implemented": %d,\n' "$IMPLEMENTED_COUNT"
+printf '    "crc32": {"expected": %d, "implemented": %d},\n' "$CRC_EXPECTED" "$CRC_IMPLEMENTED"
+printf '    "kvdb": {"expected": %d, "implemented": %d},\n' "$KV_EXPECTED" "$KV_IMPLEMENTED"
+printf '    "tsdb": {"expected": %d, "implemented": %d}\n' "$TS_EXPECTED" "$TS_IMPLEMENTED"
+printf '  },\n'
 printf '  "details": {\n'
 printf '    "crc32": {"passed": %d, "failed": %d},\n' "$CRC_PASS" "$CRC_FAIL"
 printf '    "kvdb": {"passed": %d, "failed": %d},\n' "$KV_PASS" "$KV_FAIL"
