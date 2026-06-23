@@ -36,7 +36,7 @@ if [ -d "$C_DIR" ]; then
   cd "$C_DIR/fdb"
   if [ -f "Makefile" ]; then
     mkdir -p build
-    if make -C build -f ../Makefile benchmark > /tmp/c-bench-stdout.log 2>/tmp/c-bench-stderr.log; then
+    if timeout 300 make -C build -f ../Makefile benchmark > /tmp/c-bench-stdout.log 2>/tmp/c-bench-stderr.log; then
       C_BUILD_OK=true
       C_BENCH_OUTPUT=$(cat /tmp/c-bench-stdout.log)
     fi
@@ -72,7 +72,7 @@ RUST_BUILD_OK=false
 if [ -d "$RUST_DIR" ]; then
   cd "$RUST_DIR"
   if [ -f "Cargo.toml" ]; then
-    if cargo bench 2>&1 | tee /tmp/rust-bench.log; then
+    if timeout 600 cargo bench 2>&1 | tee /tmp/rust-bench.log; then
       RUST_BUILD_OK=true
       RUST_BENCH_OUTPUT=$(cat /tmp/rust-bench.log)
     fi

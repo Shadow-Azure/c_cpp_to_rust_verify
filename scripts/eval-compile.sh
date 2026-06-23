@@ -16,7 +16,7 @@ cd "$RUST_DIR"
 # 运行 cargo build，捕获输出
 BUILD_OUTPUT=""
 EXIT_CODE=0
-BUILD_OUTPUT=$(cargo build 2>&1) || EXIT_CODE=$?
+BUILD_OUTPUT=$(timeout 600 cargo build 2>&1) || EXIT_CODE=$?
 
 # 解析 error 和 warning 数量
 ERROR_COUNT=$(echo "$BUILD_OUTPUT" | grep -c "^error\[" || true)

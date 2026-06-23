@@ -54,7 +54,7 @@ jobs:
   evaluate:
     name: "Evaluate: Compile + Test + Performance"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     needs: convert
     steps:
       - name: Checkout repository
