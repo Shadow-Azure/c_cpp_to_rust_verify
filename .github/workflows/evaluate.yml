@@ -52,6 +52,9 @@ jobs:
           echo "✅ c-to-rust skill downloaded and extracted"
           ls -la .opencode/skills/c-to-rust/
           .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
+          # Verify libclang is available
+          ls -la .opencode/skills/c-to-rust/lib/libclang* 2>/dev/null || echo "libclang not in lib/"
+          ldd .opencode/skills/c-to-rust/bin/ir 2>&1 | grep -E "(clang|not found)" || echo "ir deps OK"
 
       - name: Generate compile_commands.json with bear
         run: |
@@ -77,7 +80,7 @@ jobs:
             --model "deepseek/deepseek-v4-flash" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言"
+            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。flashdb/compile_commands.json 已预生成，跳过 Phase 1。"
 
       - name: Upload converted Rust code
         uses: actions/upload-artifact@v4
