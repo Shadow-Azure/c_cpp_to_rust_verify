@@ -32,7 +32,9 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq python3 libtinfo5
+          sudo apt-get install -y jq python3 libtinfo6
+          # Bundled clang++ needs libtinfo.so.5, symlink from libtinfo6
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
 
       - name: Download c-to-rust skill from release
         env:
