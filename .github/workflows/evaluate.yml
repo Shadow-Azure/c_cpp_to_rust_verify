@@ -58,14 +58,14 @@ jobs:
       - name: Run OpenCode conversion
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          PATH: ${{ github.workspace }}/.opencode/skills/c-to-rust/bin:${{ env.PATH }}
-          LD_LIBRARY_PATH: ${{ github.workspace }}/.opencode/skills/c-to-rust/lib
         run: |
+          export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
+          export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
           opencode run \
             --model "deepseek/deepseek-v4-flash" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
-            "/c-to-rust"
+            "Convert the flashdb/ C library to Rust using the c-to-rust skill. Output to rust-flashdb/."
 
       - name: Upload converted Rust code
         uses: actions/upload-artifact@v4
