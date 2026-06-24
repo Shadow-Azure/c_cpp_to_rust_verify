@@ -30,7 +30,9 @@ jobs:
           echo "$HOME/.opencode/bin" >> $GITHUB_PATH
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq python3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq python3 libtinfo5
 
       - name: Download c-to-rust skill from release
         env:
@@ -45,6 +47,8 @@ jobs:
           mv .opencode/skills/c-to-rust-linux-x86_64 .opencode/skills/c-to-rust
           chmod +x .opencode/skills/c-to-rust/bin/*
           rm /tmp/c-to-rust-linux-x86_64.tar.gz
+          # Remove smoke-c2rust to avoid opencode loading wrong skill
+          rm -rf .opencode/skills/smoke-c2rust
           echo "✅ c-to-rust skill downloaded and extracted"
           ls -la .opencode/skills/c-to-rust/
           .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
