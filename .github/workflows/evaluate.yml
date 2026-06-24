@@ -29,17 +29,37 @@ jobs:
           curl -fsSL https://opencode.ai/install | bash
           echo "$HOME/.opencode/bin" >> $GITHUB_PATH
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq python3
+
+      - name: Download c-to-rust skill from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p .opencode/skills
+          gh release download v0.1.1-beta \
+            --repo Shadow-Azure/c_cpp_to_rust \
+            -p "c-to-rust-linux-x86_64.tar.gz" \
+            -D /tmp
+          tar xzf /tmp/c-to-rust-linux-x86_64.tar.gz -C .opencode/skills/
+          mv .opencode/skills/c-to-rust-linux-x86_64 .opencode/skills/c-to-rust
+          chmod +x .opencode/skills/c-to-rust/bin/*
+          rm /tmp/c-to-rust-linux-x86_64.tar.gz
+          echo "✅ c-to-rust skill downloaded and extracted"
+          ls -la .opencode/skills/c-to-rust/
+          .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
+
       - name: Run OpenCode conversion
         env:
-          # DeepSeek API key，从 Environment Secrets 读取
-          # 需在 Settings > Environments > production > Secrets 中配置
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PATH: ${{ github.workspace }}/.opencode/skills/c-to-rust/bin:${{ env.PATH }}
+          LD_LIBRARY_PATH: ${{ github.workspace }}/.opencode/skills/c-to-rust/lib
         run: |
           opencode run \
             --model "deepseek/deepseek-v4-flash" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
-            "/flashdb-c2rust"
+            "/c-to-rust"
 
       - name: Upload converted Rust code
         uses: actions/upload-artifact@v4
