@@ -34,7 +34,7 @@ jobs:
 
       - name: Download c-to-rust skill from release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
           gh release download v0.1.1-beta \
