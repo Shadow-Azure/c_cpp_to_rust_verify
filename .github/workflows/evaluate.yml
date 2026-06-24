@@ -16,7 +16,7 @@ jobs:
   # ============================================================
   convert:
     name: "Convert: FlashDB C → Rust"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
@@ -32,9 +32,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq python3 libtinfo6 bear
-          # Bundled clang++ needs libtinfo.so.5, symlink from libtinfo6
-          sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+          sudo apt-get install -y jq python3 libtinfo5 bear
 
       - name: Download c-to-rust skill from release
         env:
@@ -93,7 +91,7 @@ jobs:
   # ============================================================
   evaluate:
     name: "Evaluate: Compile + Test + Performance"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     needs: convert
     steps:
