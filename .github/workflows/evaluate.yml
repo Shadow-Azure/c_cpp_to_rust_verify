@@ -32,7 +32,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq python3 libtinfo6
+          sudo apt-get install -y jq python3 libtinfo6 bear
           # Bundled clang++ needs libtinfo.so.5, symlink from libtinfo6
           sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
 
@@ -54,6 +54,20 @@ jobs:
           echo "✅ c-to-rust skill downloaded and extracted"
           ls -la .opencode/skills/c-to-rust/
           .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
+
+      - name: Generate compile_commands.json with bear
+        run: |
+          cd flashdb
+          bear -- make -C tests clean all
+          echo "✅ compile_commands.json generated"
+          cat compile_commands.json | python3 -m json.tool | head -30
+
+      - name: Upload compile_commands.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-commands
+          path: flashdb/compile_commands.json
+          retention-days: 7
 
       - name: Run OpenCode conversion
         env:
