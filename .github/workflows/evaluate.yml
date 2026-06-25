@@ -141,14 +141,14 @@ jobs:
       - name: "Evaluate: Compilation"
         id: compile
         run: |
-          bash scripts/eval-compile.sh > /tmp/compile-result.json 2>/tmp/compile-detail.log
+          bash scripts/eval-compile.sh > /tmp/compile-result.json
           echo "result-file=/tmp/compile-result.json" >> $GITHUB_OUTPUT
 
       # --- 测试评测 ---
       - name: "Evaluate: Tests"
         id: tests
         run: |
-          bash scripts/eval-tests.sh > /tmp/test-result.json 2>/tmp/test-detail.log
+          bash scripts/eval-tests.sh > /tmp/test-result.json
           echo "result-file=/tmp/test-result.json" >> $GITHUB_OUTPUT
 
       # --- C 构建工具 (功能等价 + 性能测试都需要) ---
@@ -200,9 +200,13 @@ jobs:
           path: |
             /tmp/eval-report.md
             /tmp/compile-result.json
+            /tmp/compile-detail.log
             /tmp/test-result.json
+            /tmp/test-detail.log
             /tmp/equiv-result.json
+            /tmp/equiv-detail.log
             /tmp/perf-result.json
+            /tmp/perf-detail.log
           retention-days: 30
 
       - name: Fail if evaluation failed

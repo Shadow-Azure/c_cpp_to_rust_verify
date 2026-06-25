@@ -5,6 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RUST_DIR="${PROJECT_ROOT}/rust-flashdb"
+LOG_FILE="/tmp/compile-detail.log"
 
 if [ ! -d "$RUST_DIR" ]; then
   echo '{"pass": false, "errors": -1, "warnings": -1, "detail": "rust-flashdb/ directory not found"}'
@@ -18,26 +19,28 @@ fi
 
 cd "$RUST_DIR"
 
-echo "--- Starting cargo build in $(pwd) ---" >&2
-echo "--- Rust version: $(rustc --version 2>&1) ---" >&2
-echo "--- Cargo version: $(cargo --version 2>&1) ---" >&2
+log() { echo "$@" | tee -a "$LOG_FILE" >&2; }
+
+log "--- Starting cargo build in $(pwd) ---"
+log "--- Rust version: $(rustc --version 2>&1) ---"
+log "--- Cargo version: $(cargo --version 2>&1) ---"
 
 # 运行 cargo build，捕获输出
 BUILD_OUTPUT=""
 EXIT_CODE=0
 BUILD_OUTPUT=$(cargo build 2>&1) || EXIT_CODE=$?
 
-echo "--- cargo build exited with code $EXIT_CODE ---" >&2
-echo "--- Build output (first 100 lines) ---" >&2
-echo "$BUILD_OUTPUT" | head -100 >&2
-echo "--- End build output ---" >&2
+log "--- cargo build exited with code $EXIT_CODE ---"
+log "--- Build output (first 200 lines) ---"
+echo "$BUILD_OUTPUT" | head -200 | tee -a "$LOG_FILE" >&2
+log "--- End build output ---"
 
 # 解析 error 和 warning 数量 — 兼容多种格式
 # cargo 格式: "error[E0425]:", "error: could not compile", "warning[E0xxx]:"
 ERROR_COUNT=$(echo "$BUILD_OUTPUT" | grep -cE "^error(\[|$)" || true)
 WARNING_COUNT=$(echo "$BUILD_OUTPUT" | grep -cE "^warning(\[|$)" || true)
 
-echo "--- Parsed: errors=$ERROR_COUNT, warnings=$WARNING_COUNT ---" >&2
+log "--- Parsed: errors=$ERROR_COUNT, warnings=$WARNING_COUNT ---"
 
 # 判断是否通过
 PASS="false"

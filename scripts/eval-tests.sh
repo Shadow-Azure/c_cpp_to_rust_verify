@@ -5,6 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RUST_DIR="${PROJECT_ROOT}/rust-flashdb"
+LOG_FILE="/tmp/test-detail.log"
 
 if [ ! -d "$RUST_DIR" ]; then
   echo '{"pass": false, "passed": 0, "failed": 0, "total": 0, "detail": "rust-flashdb/ directory not found"}'
@@ -13,16 +14,21 @@ fi
 
 cd "$RUST_DIR"
 
-echo "--- Starting cargo test in $(pwd) ---" >&2
+log() { echo "$@" | tee -a "$LOG_FILE" >&2; }
+
+log "--- Starting cargo test in $(pwd) ---"
+log "--- Rust version: $(rustc --version 2>&1) ---"
+log "--- Cargo version: $(cargo --version 2>&1) ---"
 
 # 运行 cargo test，捕获输出（不用 set -e，手动处理退出码）
 TEST_OUTPUT=""
 EXIT_CODE=0
 TEST_OUTPUT=$(cargo test 2>&1) || EXIT_CODE=$?
 
-echo "--- cargo test exited with code $EXIT_CODE ---" >&2
-echo "--- Test output (first 50 lines) ---" >&2
-echo "$TEST_OUTPUT" | head -50 >&2
+log "--- cargo test exited with code $EXIT_CODE ---"
+log "--- Test output (first 200 lines) ---"
+echo "$TEST_OUTPUT" | head -200 | tee -a "$LOG_FILE" >&2
+log "--- End test output ---"
 
 # timeout 命令返回 124 表示超时
 if [ "$EXIT_CODE" -eq 124 ]; then
@@ -35,7 +41,7 @@ if [ "$EXIT_CODE" -eq 124 ]; then
   printf '  "timeout": true,\n'
   printf '  "message": "cargo test timed out after 600s"\n'
   printf '}\n'
-  echo "--- TIMEOUT: cargo test exceeded 600s ---" >&2
+  log "--- TIMEOUT: cargo test exceeded 600s ---"
   exit 0
 fi
 
@@ -66,10 +72,10 @@ printf '  "ignored": %d,\n' "$IGNORED"
 printf '  "total": %d\n' "$TOTAL"
 printf '}\n'
 
-# 输出详细测试日志到 stderr
+# 输出详细测试日志
 if [ "$EXIT_CODE" -ne 0 ]; then
-  echo "--- Test Output ---" >&2
-  echo "$TEST_OUTPUT" >&2
+  log "--- Full Test Output ---"
+  echo "$TEST_OUTPUT" | tee -a "$LOG_FILE" >&2
 fi
 
 exit 0
