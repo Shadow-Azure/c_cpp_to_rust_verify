@@ -22,3 +22,4 @@ target
 __pycache__/
 ffi-compare/build/
 .opencode/skills/c-to-rust/
+rust-flashdb/
