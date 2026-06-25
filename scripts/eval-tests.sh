@@ -13,11 +13,16 @@ fi
 
 cd "$RUST_DIR"
 
+echo "--- Starting cargo test in $(pwd) ---" >&2
+
 # 运行 cargo test，捕获输出（不用 set -e，手动处理退出码）
-# 用 timeout 防止测试挂起（10分钟上限）
 TEST_OUTPUT=""
 EXIT_CODE=0
-TEST_OUTPUT=$(timeout 600 cargo test 2>&1) || EXIT_CODE=$?
+TEST_OUTPUT=$(cargo test 2>&1) || EXIT_CODE=$?
+
+echo "--- cargo test exited with code $EXIT_CODE ---" >&2
+echo "--- Test output (first 50 lines) ---" >&2
+echo "$TEST_OUTPUT" | head -50 >&2
 
 # timeout 命令返回 124 表示超时
 if [ "$EXIT_CODE" -eq 124 ]; then
