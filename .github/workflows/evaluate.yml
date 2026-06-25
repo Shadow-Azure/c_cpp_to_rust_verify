@@ -34,8 +34,10 @@ jobs:
           # Install libtinfo5 from jammy (22.04) for bundled clang++
           wget -q http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
           sudo dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb || true
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main"
           sudo apt-get update
-          sudo apt-get install -y jq python3 bear
+          sudo apt-get install -y jq python3 bear clang-18
 
       - name: Download c-to-rust skill from release
         env:
@@ -50,6 +52,14 @@ jobs:
           mv .opencode/skills/c-to-rust-linux-x86_64 .opencode/skills/c-to-rust
           chmod +x .opencode/skills/c-to-rust/bin/*
           rm /tmp/c-to-rust-linux-x86_64.tar.gz
+          # Symlink system clang-18 headers to bundled clang's resource dir
+          BUNDLED_RES=$(ls -d .opencode/skills/c-to-rust/lib/clang/18* 2>/dev/null | head -1)
+          SYS_RES=$(ls -d /usr/lib/llvm-18/lib/clang/18* 2>/dev/null | head -1)
+          if [ -n "$BUNDLED_RES" ] && [ -n "$SYS_RES" ]; then
+            rm -rf "$BUNDLED_RES/include"
+            ln -s "$SYS_RES/include" "$BUNDLED_RES/include"
+            echo "✅ Symlinked clang headers: $SYS_RES/include -> $BUNDLED_RES/include"
+          fi
           # Remove smoke-c2rust to avoid opencode loading wrong skill
           rm -rf .opencode/skills/smoke-c2rust
           echo "✅ c-to-rust skill downloaded and extracted"
