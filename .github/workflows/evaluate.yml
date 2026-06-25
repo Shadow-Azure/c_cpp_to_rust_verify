@@ -83,6 +83,25 @@ jobs:
           echo "✅ compile_commands.json generated"
           cat compile_commands.json | python3 -m json.tool | head -30
 
+      - name: Fix compile_commands.json for C mode
+        run: |
+          # Bundled clang++ treats .c files as C++, causing void* implicit
+          # conversion errors. Add "-x c" to force C mode.
+          python3 -c "
+          import json
+          with open('flashdb/compile_commands.json') as f:
+              cmds = json.load(f)
+          for cmd in cmds:
+              args = cmd.get('arguments', [])
+              if '-x' not in args:
+                  # Insert '-x c' after the compiler binary
+                  cmd['arguments'] = [args[0], '-x', 'c'] + args[1:]
+          with open('flashdb/compile_commands.json', 'w') as f:
+              json.dump(cmds, f, indent=2)
+          "
+          echo "✅ Added -x c to compile_commands.json"
+          cat flashdb/compile_commands.json | python3 -m json.tool | head -20
+
       - name: Upload compile_commands.json
         uses: actions/upload-artifact@v4
         with:
@@ -102,7 +121,7 @@ jobs:
             --model "deepseek/deepseek-v4-flash" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成，跳过 Phase 1。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 跳过 refactor passes，直接从 codegen 结果整合到 rust-flashdb/。"
+            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），跳过 Phase 1，不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 跳过 refactor passes，直接从 codegen 结果整合到 rust-flashdb/。"
 
       - name: Upload converted Rust code
         uses: actions/upload-artifact@v4
