@@ -1,0 +1,40 @@
+# Performance benchmark metrics for FlashDB C→Rust evaluation
+# Each metric defines a benchmark name and its unit
+
+metrics:
+  # KVDB benchmarks
+  - name: kvdb_set_string
+    category: kvdb
+    description: "KVDB set string value (1000 ops)"
+  - name: kvdb_get_string
+    category: kvdb
+    description: "KVDB get string value (1000 ops)"
+  - name: kvdb_set_blob
+    category: kvdb
+    description: "KVDB set blob value 128B (1000 ops)"
+  - name: kvdb_get_blob
+    category: kvdb
+    description: "KVDB get blob value 128B (1000 ops)"
+  - name: kvdb_update
+    category: kvdb
+    description: "KVDB update string value (1000 ops)"
+  - name: kvdb_iterate
+    category: kvdb
+    description: "KVDB iterate all entries (2000 ops)"
+  - name: kvdb_delete
+    category: kvdb
+    description: "KVDB delete entries (1000 ops)"
+
+  # TSDB benchmarks
+  - name: tsdb_append
+    category: tsdb
+    description: "TSDB append TSL 64B (2000 ops)"
+  - name: tsdb_iterate
+    category: tsdb
+    description: "TSDB iterate all entries (2000 ops)"
+  - name: tsdb_iter_by_time
+    category: tsdb
+    description: "TSDB iterate by time range (2000 ops)"
+  - name: tsdb_query_count
+    category: tsdb
+    description: "TSDB query count by time range (2000 ops)"
