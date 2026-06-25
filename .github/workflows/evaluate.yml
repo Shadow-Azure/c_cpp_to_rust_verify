@@ -16,7 +16,7 @@ jobs:
   # ============================================================
   convert:
     name: "Convert: FlashDB C → Rust"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
@@ -31,11 +31,11 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          # Install LLVM 18 repo for clang-18
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main"
+          # Install libtinfo5 from jammy (22.04) for bundled clang++
+          wget -q http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
+          sudo dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb || true
           sudo apt-get update
-          sudo apt-get install -y jq python3 libtinfo5 bear clang-18
+          sudo apt-get install -y jq python3 bear
 
       - name: Download c-to-rust skill from release
         env:
@@ -50,17 +50,14 @@ jobs:
           mv .opencode/skills/c-to-rust-linux-x86_64 .opencode/skills/c-to-rust
           chmod +x .opencode/skills/c-to-rust/bin/*
           rm /tmp/c-to-rust-linux-x86_64.tar.gz
-          # Replace bundled clang++ with system clang-18 (bundled needs glibc 2.39)
-          rm -f .opencode/skills/c-to-rust/bin/clang++
-          ln -s /usr/bin/clang++-18 .opencode/skills/c-to-rust/bin/clang++
           # Remove smoke-c2rust to avoid opencode loading wrong skill
           rm -rf .opencode/skills/smoke-c2rust
           echo "✅ c-to-rust skill downloaded and extracted"
           ls -la .opencode/skills/c-to-rust/
           .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
-          # Verify clang++ works
-          .opencode/skills/c-to-rust/bin/clang++ --version 2>&1 | head -3
-          ldd .opencode/skills/c-to-rust/bin/ir 2>&1 | grep -E "not found" || echo "ir deps OK"
+          # Verify tools work
+          .opencode/skills/c-to-rust/bin/clang++ --version 2>&1 | head -3 || echo "clang++ check done"
+          ldd .opencode/skills/c-to-rust/bin/ir 2>&1 | grep "not found" || echo "ir deps OK"
 
       - name: Generate compile_commands.json with bear
         run: |
@@ -100,7 +97,7 @@ jobs:
   # ============================================================
   evaluate:
     name: "Evaluate: Compile + Test + Performance"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     needs: convert
     steps:
