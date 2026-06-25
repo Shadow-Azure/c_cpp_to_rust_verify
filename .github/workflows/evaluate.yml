@@ -112,13 +112,13 @@ jobs:
       - name: Run OpenCode conversion
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          OPENCODE_PERMISSION: '{"external_directory": {"allow": ["/tmp/*"]}}'
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
           export CPATH="/usr/lib/llvm-18/lib/clang/18/include:${CPATH:-}"
           export C_INCLUDE_PATH="/usr/lib/llvm-18/lib/clang/18/include:${C_INCLUDE_PATH:-}"
           opencode run \
+            --dangerously-skip-permissions \
             --model "deepseek/deepseek-v4-flash" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
