@@ -155,7 +155,13 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y bc python3
+        continue-on-error: true
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update && sudo apt-get install -y bc python3 && break
+            echo "apt-get attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
 
       # --- 编译评测 ---
       - name: "Evaluate: Compilation"
@@ -173,7 +179,8 @@ jobs:
 
       # --- C 构建工具 (功能等价 + 性能测试都需要) ---
       - name: Install C build tools
-        run: sudo apt-get install -y gcc make
+        continue-on-error: true
+        run: sudo apt-get install -y gcc make || echo "gcc/make install failed, equiv/perf may fail"
 
       # --- 功能等价评测 ---
       - name: "Evaluate: FFI Equivalence"
