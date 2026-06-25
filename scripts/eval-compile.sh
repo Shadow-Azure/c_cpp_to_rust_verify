@@ -25,10 +25,10 @@ log "--- Starting cargo build in $(pwd) ---"
 log "--- Rust version: $(rustc --version 2>&1) ---"
 log "--- Cargo version: $(cargo --version 2>&1) ---"
 
-# 运行 cargo build，捕获输出
+# 运行 cargo build，捕获输出（禁用颜色码以确保 grep 匹配）
 BUILD_OUTPUT=""
 EXIT_CODE=0
-BUILD_OUTPUT=$(cargo build 2>&1) || EXIT_CODE=$?
+BUILD_OUTPUT=$(CARGO_TERM_COLOR=never cargo build 2>&1) || EXIT_CODE=$?
 
 log "--- cargo build exited with code $EXIT_CODE ---"
 log "--- Build output (first 200 lines) ---"
