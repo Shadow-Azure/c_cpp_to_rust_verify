@@ -52,16 +52,23 @@ jobs:
           mv .opencode/skills/c-to-rust-linux-x86_64 .opencode/skills/c-to-rust
           chmod +x .opencode/skills/c-to-rust/bin/*
           rm /tmp/c-to-rust-linux-x86_64.tar.gz
-          # Symlink system clang-18 headers to bundled clang's resource dir
-          BUNDLED_RES=$(ls -d .opencode/skills/c-to-rust/lib/clang/18* 2>/dev/null | head -1)
-          SYS_RES=$(ls -d /usr/lib/llvm-18/lib/clang/18* 2>/dev/null | head -1)
-          if [ -n "$BUNDLED_RES" ] && [ -n "$SYS_RES" ]; then
-            rm -rf "$BUNDLED_RES/include"
-            ln -s "$SYS_RES/include" "$BUNDLED_RES/include"
-            echo "✅ Symlinked clang headers: $SYS_RES/include -> $BUNDLED_RES/include"
-          fi
           # Remove smoke-c2rust to avoid opencode loading wrong skill
           rm -rf .opencode/skills/smoke-c2rust
+          # Symlink system clang-18 headers to bundled clang's resource dir
+          # Use exact paths (no glob) to avoid matching issues
+          BUNDLED_RES=".opencode/skills/c-to-rust/lib/clang/18"
+          SYS_RES="/usr/lib/llvm-18/lib/clang/18"
+          echo "BUNDLED_RES=$BUNDLED_RES exists=$(test -d $BUNDLED_RES && echo yes || echo no)"
+          echo "SYS_RES=$SYS_RES exists=$(test -d $SYS_RES/include && echo yes || echo no)"
+          if [ -d "$BUNDLED_RES" ] && [ -d "$SYS_RES/include" ]; then
+            mkdir -p "$BUNDLED_RES"
+            rm -rf "$BUNDLED_RES/include"
+            cp -r "$SYS_RES/include" "$BUNDLED_RES/include"
+            echo "✅ Copied clang headers: $SYS_RES/include -> $BUNDLED_RES/include"
+            ls "$BUNDLED_RES/include/" | head -5
+          else
+            echo "⚠️ Could not copy headers, will use CPATH fallback"
+          fi
           echo "✅ c-to-rust skill downloaded and extracted"
           ls -la .opencode/skills/c-to-rust/
           .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
@@ -89,6 +96,8 @@ jobs:
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
+          export CPATH="/usr/lib/llvm-18/lib/clang/18/include:${CPATH:-}"
+          export C_INCLUDE_PATH="/usr/lib/llvm-18/lib/clang/18/include:${C_INCLUDE_PATH:-}"
           opencode run \
             --model "deepseek/deepseek-v4-flash" \
             --agent build \
