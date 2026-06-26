@@ -1,0 +1,94 @@
+name: Debug OpenCode Session Export
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug-session:
+    name: Debug opencode session export
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenCode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
+      - name: Run opencode and capture session
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          # Step 1: Run a simple prompt to create a session
+          echo "=== Step 1: opencode run ==="
+          opencode run \
+            --dangerously-skip-permissions \
+            --model "deepseek/deepseek-v4-flash" \
+            "回复 hello" \
+            2>&1 | tee /tmp/opencode-run-output.txt
+          echo "=== opencode run exit code: $? ==="
+
+          # Step 2: List sessions
+          echo ""
+          echo "=== Step 2: opencode session list ==="
+          opencode session list 2>&1 | tee /tmp/session-list.txt
+          echo ""
+
+          echo "=== Step 2b: opencode session list --format json ==="
+          opencode session list --format json 2>&1 | tee /tmp/session-list-json.txt
+          echo ""
+
+          # Step 3: Get session ID
+          SESSION_ID=$(opencode session list --format json 2>&1 | python3 -c "
+          import json, sys
+          try:
+              data = sys.stdin.read()
+              print(f'Raw input: {data[:500]}', file=sys.stderr)
+              sessions = json.loads(data)
+              if sessions:
+                  print(sessions[0]['id'])
+              else:
+                  print('')
+          except Exception as e:
+              print(f'Parse error: {e}', file=sys.stderr)
+              print('')
+          " 2>&1 | tee /tmp/session-id-debug.txt)
+          echo "SESSION_ID=$SESSION_ID"
+
+          # Step 4: Try export with different flags
+          if [ -n "$SESSION_ID" ]; then
+            echo ""
+            echo "=== Step 4a: opencode export $SESSION_ID ==="
+            opencode export "$SESSION_ID" 2>&1 | tee /tmp/export-default.txt
+            echo "=== exit code: $? ==="
+
+            echo ""
+            echo "=== Step 4b: opencode export $SESSION_ID --format json ==="
+            opencode export "$SESSION_ID" --format json 2>&1 | tee /tmp/export-json.txt
+            echo "=== exit code: $? ==="
+
+            echo ""
+            echo "=== Step 4c: opencode export --help ==="
+            opencode export --help 2>&1 | tee /tmp/export-help.txt
+          else
+            echo "No session ID found, skipping export"
+          fi
+
+          # Step 5: Check file sizes
+          echo ""
+          echo "=== Step 5: File sizes ==="
+          ls -la /tmp/export-*.txt /tmp/opencode-run-output.txt /tmp/session-list*.txt /tmp/session-id-debug.txt 2>/dev/null
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-session
+          path: /tmp/*.txt
+          retention-days: 7
