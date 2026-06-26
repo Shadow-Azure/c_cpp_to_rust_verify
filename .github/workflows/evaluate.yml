@@ -124,6 +124,40 @@ jobs:
             --title "FlashDB C→Rust conversion" \
             "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），跳过 Phase 1，不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 跳过 refactor passes，直接从 codegen 结果整合到 rust-flashdb/。"
 
+      - name: Export opencode session
+        if: always()
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
+          export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
+          SESSION_ID=$(opencode session list --format json 2>/dev/null | python3 -c "
+          import json, sys
+          try:
+              sessions = json.load(sys.stdin)
+              if sessions:
+                  print(sessions[0]['id'])
+              else:
+                  print('')
+          except:
+              print('')
+          " 2>/dev/null || echo "")
+          if [ -n "$SESSION_ID" ]; then
+            echo "Exporting session: $SESSION_ID"
+            opencode export "$SESSION_ID" --format json > /tmp/opencode-session.json 2>/dev/null || echo "export failed"
+          else
+            echo "No session found to export"
+            echo '{"error": "no session found"}' > /tmp/opencode-session.json
+          fi
+
+      - name: Upload opencode session
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-session
+          path: /tmp/opencode-session.json
+          retention-days: 30
+
       - name: Upload converted Rust code
         uses: actions/upload-artifact@v4
         with:
