@@ -141,10 +141,10 @@ jobs:
                   print('')
           except:
               print('')
-          " 2>/dev/null || echo "")
+          " || echo "")
           if [ -n "$SESSION_ID" ]; then
             echo "Exporting session: $SESSION_ID"
-            opencode export "$SESSION_ID" --format json > /tmp/opencode-session.json 2>/dev/null || echo "export failed"
+            opencode export "$SESSION_ID" > /tmp/opencode-session.json 2>&1 || echo "export failed"
           else
             echo "No session found to export"
             echo '{"error": "no session found"}' > /tmp/opencode-session.json
