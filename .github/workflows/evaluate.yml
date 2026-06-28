@@ -1,3 +1,4 @@
+# loop-engineer turn 1 epoch 1782648441 evaluating v0.0.4-beta
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -44,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.0.2-beta \
+          gh release download v0.0.4-beta \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp
@@ -112,7 +113,6 @@ jobs:
       - name: Run OpenCode conversion
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          OPENCODE_CONFIG_CONTENT: '{"steps": 30}'
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"

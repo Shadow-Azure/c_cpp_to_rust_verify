@@ -1,69 +1,93 @@
 #!/usr/bin/env bash
-# eval-equivalence.sh — 评测 Rust 转换版与 C 原版的功能等价性
-# 1. API 覆盖率: 对比 rust_ffi.h 声明 vs ffi.rs 实现
-# 2. 功能等价: 通过 FFI 调用两个实现，对比输出
-# 输出 JSON 结果到 stdout
+# eval-equivalence.sh — evaluate functional equivalence between the Rust
+# port and the original C implementation using a TWO-BINARY comparison.
+#
+# Model: the test driver (ffi-compare/compare_tests.c) calls the public
+# FlashDB C API by its ORIGINAL symbol names (fdb_kvdb_init, fdb_kv_set,
+# fdb_calc_crc32, fdb_tsl_append, ...). The harness compiles this single
+# driver twice — once linked against the C reference static library, once
+# against the Rust static library (whose ffi.rs must export the SAME
+# #[no_mangle] extern "C" symbols as flashdb.h). Each binary is run with
+# identical inputs; their structured CASE-line stdout is diffed line by line.
+# Matching CASE lines count as PASSED, differing/missing lines as FAILED.
+#
+# Because each binary contains exactly ONE library there is no symbol
+# collision, so the Rust exports need NO project-specific prefix (the old
+# fdb_rust_* namespacing is removed). This matches the standard contract for
+# a C→Rust migration: the Rust crate is a drop-in for the C library.
+#
+# Scoring semantics are unchanged: equivalence score = passed / total and
+# pass requires FAILED == 0. The eval-config.json weight (0.25) is unchanged.
+#
+# Output: JSON to stdout (consumed by aggregate-score.py / loopengine.eval).
+
+set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 RUST_DIR="$ROOT_DIR/rust-flashdb"
 FFI_DIR="$ROOT_DIR/ffi-compare"
-FFI_H="$FFI_DIR/rust_ffi.h"
 FFI_RS="$RUST_DIR/src/ffi.rs"
+C_API_H="$ROOT_DIR/flashdb/inc/flashdb.h"
+DRIVER_C="$FFI_DIR/compare_tests.c"
 
 # ============================================================
-# 1. API 覆盖率分析
+# 1. API coverage analysis
+#
+# The expected contract is now "the Rust FFI exports the SAME symbols the C
+# library exposes in flashdb.h", under their original names. We derive the
+# expected public-API function set dynamically from the C header (no hardcoded
+# list) and check ffi.rs declares each as a #[no_mangle] extern "C" export.
 # ============================================================
 
-# 从 rust_ffi.h 提取期望的函数名 (fdb_rust_* 函数)
+# Derive expected public function names from the C header: identifiers
+# declared in the public API prototypes. Extract tokens beginning with fdb_.
 EXPECTED_FUNCS=""
-if [ -f "$FFI_H" ]; then
-  EXPECTED_FUNCS=$(grep -oE 'fdb_rust_[a-z0-9_]+' "$FFI_H" | sort -u)
+if [ -f "$C_API_H" ]; then
+  EXPECTED_FUNCS=$(grep -oE '\bfdb_[a-z0-9_]+' "$C_API_H" | sort -u)
 fi
 EXPECTED_COUNT=$(echo "$EXPECTED_FUNCS" | grep -c . || true)
 
-# 从 ffi.rs 提取实际实现的 #[no_mangle] extern "C" 函数
+# From ffi.rs extract which #[no_mangle] extern "C" functions are exported,
+# keeping only the original C symbol names (fdb_*).
 IMPLEMENTED_FUNCS=""
 if [ -f "$FFI_RS" ]; then
-  # 匹配 "pub extern "C" fn fdb_rust_*" 模式
-  IMPLEMENTED_FUNCS=$(grep -oE 'fdb_rust_[a-z0-9_]+' "$FFI_RS" | sort -u)
+  IMPLEMENTED_FUNCS=$(grep -oE '\bfdb_[a-z0-9_]+' "$FFI_RS" | sort -u)
 fi
 IMPLEMENTED_COUNT=$(echo "$IMPLEMENTED_FUNCS" | grep -c . || true)
 
-# 计算各类别覆盖率
-CRC_EXPECTED=$(echo "$EXPECTED_FUNCS" | grep -c "crc32" || true)
+# Per-category expected/implemented counts, derived from the C header names.
+CRC_EXPECTED=$(echo "$EXPECTED_FUNCS"    | grep -c "crc32" || true)
 CRC_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "crc32" || true)
-
-KV_EXPECTED=$(echo "$EXPECTED_FUNCS" | grep -c "kvdb\|kv_" || true)
-KV_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "kvdb\|kv_" || true)
-
-TS_EXPECTED=$(echo "$EXPECTED_FUNCS" | grep -c "tsdb\|tsl_" || true)
-TS_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "tsdb\|tsl_" || true)
-
-# free_string 是通用函数
-FREE_EXPECTED=$(echo "$EXPECTED_FUNCS" | grep -c "free_string" || true)
-FREE_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "free_string" || true)
+KV_EXPECTED=$(echo "$EXPECTED_FUNCS"    | grep -cE "kvdb|kv_" || true)
+KV_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -cE "kvdb|kv_" || true)
+TS_EXPECTED=$(echo "$EXPECTED_FUNCS"    | grep -cE "tsdb|tsl_" || true)
+TS_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -cE "tsdb|tsl_" || true)
 
 # ============================================================
-# 检查前提条件
+# Preconditions
 # ============================================================
 
-# 检查 ffi.rs 是否存在
 if [ ! -f "$FFI_RS" ]; then
   printf '{"pass": false, "ffi_present": false, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": 0, "crc32": {"expected": %d, "implemented": 0}, "kvdb": {"expected": %d, "implemented": 0}, "tsdb": {"expected": %d, "implemented": 0}}, "message": "ffi.rs not found"}\n' \
     "$EXPECTED_COUNT" "$CRC_EXPECTED" "$KV_EXPECTED" "$TS_EXPECTED"
   exit 0
 fi
 
-# 检查 rust-flashdb 是否存在
 if [ ! -d "$RUST_DIR" ] || [ ! -f "$RUST_DIR/Cargo.toml" ]; then
   printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d, "crc32": {"expected": %d, "implemented": %d}, "kvdb": {"expected": %d, "implemented": %d}, "tsdb": {"expected": %d, "implemented": %d}}, "message": "rust-flashdb/ not found"}\n' \
     "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$CRC_EXPECTED" "$CRC_IMPLEMENTED" "$KV_EXPECTED" "$KV_IMPLEMENTED" "$TS_EXPECTED" "$TS_IMPLEMENTED"
   exit 0
 fi
 
+if [ ! -f "$DRIVER_C" ]; then
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "message": "compare_tests.c driver not found"}\n' \
+    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT"
+  exit 0
+fi
+
 # ============================================================
-# 2. 构建 C 静态库
+# 2. Build the C reference static library
 # ============================================================
 
 cd "$FFI_DIR"
@@ -76,16 +100,14 @@ if ! make c-lib >/tmp/equiv-c-build.log 2>&1; then
 fi
 
 # ============================================================
-# 3. 构建 Rust 静态库
+# 3. Build the Rust static library
 # ============================================================
 
 cd "$RUST_DIR"
 RUST_BUILD_OK=false
 RUST_ERROR=""
 
-# 尝试 cargo build --release，超时 10 分钟
 if timeout 600 cargo build --release >/tmp/equiv-rust-build.log 2>&1; then
-  # 查找编译产物
   RUST_LIB=""
   for lib in target/release/libflashdb.a target/release/libflashdb.rlib; do
     if [ -f "$lib" ]; then
@@ -93,7 +115,6 @@ if timeout 600 cargo build --release >/tmp/equiv-rust-build.log 2>&1; then
       break
     fi
   done
-
   if [ -n "$RUST_LIB" ]; then
     cp "$RUST_LIB" "$FFI_DIR/build/libflashdb_rust.a"
     RUST_BUILD_OK=true
@@ -111,34 +132,102 @@ if [ "$RUST_BUILD_OK" = false ]; then
 fi
 
 # ============================================================
-# 4. 编译并运行对比测试
+# 4. Compile the SAME driver twice — once per library
+#
+# compare_c   : compare_tests.c + libflashdb_c.a    (C reference)
+# compare_rust: compare_tests.c + libflashdb_rust.a (Rust port)
+#
+# No symbol collision: each binary links exactly one implementation.
 # ============================================================
 
 cd "$FFI_DIR"
 
-# 编译 compare_tests
-if ! cc -O0 -g3 -Wall -Wno-format \
-    -I"$ROOT_DIR/flashdb/inc" \
-    -I"$ROOT_DIR/flashdb/tests" \
-    -I. \
-    -DFDB_USING_FILE_MODE -DFDB_USING_FILE_POSIX_MODE \
-    -DFDB_WRITE_GRAN=1 -DFDB_USING_KVDB -DFDB_USING_TSDB \
-    -o build/compare_tests \
-    compare_tests.c \
-    build/libflashdb_c.a \
-    build/libflashdb_rust.a \
-    -lpthread >/tmp/equiv-compile.log 2>&1; then
-  LINK_ERROR=$(head -3 /tmp/equiv-compile.log 2>/dev/null | tr '\n' ' ' | head -c 200)
-  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "link_error": "%s", "message": "compare_tests link failed"}\n' \
+CC_FLAGS="-O0 -g3 -Wall -Wno-format -include drv_log.h \
+  -I\"$ROOT_DIR/flashdb/inc\" -I\"$ROOT_DIR/flashdb/tests\" -I. \
+  -DFDB_USING_FILE_MODE -DFDB_USING_FILE_POSIX_MODE \
+  -DFDB_WRITE_GRAN=1 -DFDB_USING_KVDB -DFDB_USING_TSDB"
+
+# C-reference binary
+if ! eval cc $CC_FLAGS -o build/compare_c compare_tests.c build/libflashdb_c.a -lpthread >/tmp/equiv-compile-c.log 2>&1; then
+  LINK_ERROR=$(head -3 /tmp/equiv-compile-c.log 2>/dev/null | tr '\n' ' ' | head -c 200)
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "link_error": "%s", "message": "compare_c (C reference) link failed"}\n' \
     "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$LINK_ERROR"
   exit 0
 fi
 
-# 运行测试 (超时 5 分钟)
-TEST_OUTPUT=$(timeout 300 build/compare_tests 2>&1) || true
+# Rust-port binary
+if ! eval cc $CC_FLAGS -o build/compare_rust compare_tests.c build/libflashdb_rust.a -lpthread >/tmp/equiv-compile-rust.log 2>&1; then
+  LINK_ERROR=$(head -3 /tmp/equiv-compile-rust.log 2>/dev/null | tr '\n' ' ' | head -c 200)
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "link_error": "%s", "message": "compare_rust link failed (Rust FFI symbols do not match flashdb.h)"}\n' \
+    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$LINK_ERROR"
+  exit 0
+fi
 
 # ============================================================
-# 5. 解析测试结果
+# 5. Run both binaries, capture deterministic CASE-line stdout
+# ============================================================
+
+timeout 300 build/compare_c    >/tmp/equiv-c-out.txt    2>/tmp/equiv-c-stderr.log    || true
+timeout 300 build/compare_rust >/tmp/equiv-rust-out.txt 2>/tmp/equiv-rust-stderr.log || true
+
+# Sort lines so order-independent; each CASE line is a self-contained atomic
+# observation identified by "CASE <id> <key>". Identical value => equivalent.
+LC_ALL=C sort /tmp/equiv-c-out.txt   -o /tmp/equiv-c-out.sorted
+LC_ALL=C sort /tmp/equiv-rust-out.txt -o /tmp/equiv-rust-out.sorted
+
+# Lines present in both => PASS. Lines missing from either => FAIL.
+LC_ALL=C comm -12 /tmp/equiv-c-out.sorted /tmp/equiv-rust-out.sorted > /tmp/equiv-match.txt
+LC_ALL=C comm -23 /tmp/equiv-c-out.sorted /tmp/equiv-rust-out.sorted > /tmp/equiv-only-c.txt
+LC_ALL=C comm -13 /tmp/equiv-c-out.sorted /tmp/equiv-rust-out.sorted > /tmp/equiv-only-rust.txt
+
+# ============================================================
+# 6. Build a synthetic TEST_OUTPUT in the legacy text format so the
+#    unchanged parsing/decision/JSON block below computes scores.
+#
+#    Format (one observation per line):
+#      <case_id> PASS | <case_id> FAIL
+#    plus the summary line:
+#      PASSED: N  FAILED: N  TOTAL: N
+#
+#    The case_id is the 2nd whitespace-delimited token of a CASE line
+#    (e.g. "kv_set_get_string"); it carries the crc32/kv_/tsl_/ts_ prefix
+#    the legacy per-category greps rely on, so no scoring logic changes.
+# ============================================================
+
+TEST_OUTPUT=""
+
+# matched lines -> PASS, labelled by case id
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  cid=$(printf '%s' "$line" | awk '{print $2}')
+  [ -z "$cid" ] && continue
+  TEST_OUTPUT="${TEST_OUTPUT}${cid} PASS"$'\n'
+done < /tmp/equiv-match.txt
+
+# C-only lines -> FAIL (Rust produced no such observation / different value)
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  cid=$(printf '%s' "$line" | awk '{print $2}')
+  [ -z "$cid" ] && continue
+  TEST_OUTPUT="${TEST_OUTPUT}${cid} FAIL"$'\n'
+done < /tmp/equiv-only-c.txt
+
+# Rust-only lines -> FAIL
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  cid=$(printf '%s' "$line" | awk '{print $2}')
+  [ -z "$cid" ] && continue
+  TEST_OUTPUT="${TEST_OUTPUT}${cid} FAIL"$'\n'
+done < /tmp/equiv-only-rust.txt
+
+# Summary counts
+CASE_TOTAL=$(printf '%s' "$TEST_OUTPUT" | grep -c . || true)
+CASE_PASSED=$(printf '%s' "$TEST_OUTPUT" | grep -c "PASS" || true)
+CASE_FAILED=$(printf '%s' "$TEST_OUTPUT" | grep -c "FAIL" || true)
+TEST_OUTPUT="${TEST_OUTPUT}PASSED: ${CASE_PASSED}  FAILED: ${CASE_FAILED}  TOTAL: ${CASE_TOTAL}"$'\n'
+
+# ============================================================
+# 7. Parse the synthetic TEST_OUTPUT (unchanged scoring logic)
 # ============================================================
 
 # 解析 PASS/FAIL 统计
@@ -165,7 +254,7 @@ if [ "$TOTAL" -gt 0 ] && [ "$FAILED" -eq 0 ]; then
 fi
 
 # ============================================================
-# 6. 输出 JSON (用 printf 确保格式干净)
+# 8. Output JSON (clean format via printf)
 # ============================================================
 
 printf '{\n'
@@ -188,10 +277,14 @@ printf '    "tsdb": {"passed": %d, "failed": %d}\n' "$TS_PASS" "$TS_FAIL"
 printf '  }\n'
 printf '}\n'
 
-# 输出详细日志到 stderr
+# Emit detail diff to stderr when there are mismatches (observability only;
+# does not change pass/fail scoring).
 if [ "$FAILED" -gt 0 ]; then
-  echo "--- Test Output ---" >&2
-  echo "$TEST_OUTPUT" >&2
+  echo "--- Equivalence diff (C vs Rust) ---" >&2
+  echo "[only in C reference output]:" >&2
+  cat /tmp/equiv-only-c.txt >&2
+  echo "[only in Rust output]:" >&2
+  cat /tmp/equiv-only-rust.txt >&2
 fi
 
 exit 0
