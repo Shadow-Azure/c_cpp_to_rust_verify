@@ -138,26 +138,29 @@ fi
 # compare_rust: compare_tests.c + libflashdb_rust.a (Rust port)
 #
 # No symbol collision: each binary links exactly one implementation.
+#
+# We use the Makefile targets (make compare-c / make compare-rust) instead
+# of raw `eval cc` to ensure identical compiler flags between the C library
+# build (step 2) and the driver build. The `eval` + shell-quoting approach
+# was fragile and caused compilation failures on GCC (Ubuntu 24.04).
 # ============================================================
 
 cd "$FFI_DIR"
 
-CC_FLAGS="-O0 -g3 -Wall -Wno-format -include drv_log.h \
-  -I\"$ROOT_DIR/flashdb/inc\" -I\"$ROOT_DIR/flashdb/tests\" -I. \
-  -DFDB_USING_FILE_MODE -DFDB_USING_FILE_POSIX_MODE \
-  -DFDB_WRITE_GRAN=1 -DFDB_USING_KVDB -DFDB_USING_TSDB"
-
-# C-reference binary
-if ! eval cc $CC_FLAGS -o build/compare_c compare_tests.c build/libflashdb_c.a -lpthread >/tmp/equiv-compile-c.log 2>&1; then
-  LINK_ERROR=$(head -3 /tmp/equiv-compile-c.log 2>/dev/null | tr '\n' ' ' | head -c 200)
+# C-reference binary — use the Makefile's compare-c target which reuses the
+# same CFLAGS, include paths, and LDFLAGS as the c-lib build above.
+if ! make compare-c >/tmp/equiv-compile-c.log 2>&1; then
+  LINK_ERROR=$(head -5 /tmp/equiv-compile-c.log 2>/dev/null | tr '\n' ' ' | head -c 300)
   printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "link_error": "%s", "message": "compare_c (C reference) link failed"}\n' \
     "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$LINK_ERROR"
   exit 0
 fi
 
-# Rust-port binary
-if ! eval cc $CC_FLAGS -o build/compare_rust compare_tests.c build/libflashdb_rust.a -lpthread >/tmp/equiv-compile-rust.log 2>&1; then
-  LINK_ERROR=$(head -3 /tmp/equiv-compile-rust.log 2>/dev/null | tr '\n' ' ' | head -c 200)
+# Rust-port binary — build/ was cleaned earlier so make compare-rust will
+# see the prerequisite (build/libflashdb_rust.a) copied in step 3 and only
+# recompile the driver, not re-invoke cargo.
+if ! make compare-rust >/tmp/equiv-compile-rust.log 2>&1; then
+  LINK_ERROR=$(head -5 /tmp/equiv-compile-rust.log 2>/dev/null | tr '\n' ' ' | head -c 300)
   printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "link_error": "%s", "message": "compare_rust link failed (Rust FFI symbols do not match flashdb.h)"}\n' \
     "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$LINK_ERROR"
   exit 0
