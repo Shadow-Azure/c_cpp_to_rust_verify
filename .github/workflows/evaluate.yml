@@ -110,6 +110,16 @@ jobs:
           path: flashdb/compile_commands.json
           retention-days: 7
 
+      - name: Initialize compile trajectory
+        # Truncate any stale trajectory from a prior run. The compile-tracker
+        # OpenCode plugin (.opencode/plugins/compile-tracker.ts) appends one
+        # JSONL record per `cargo check` / `cargo build` invocation during the
+        # conversion, giving visibility into the codegen baseline -> each
+        # Phase 6 fix round -> final error count.
+        run: |
+          : > /tmp/compile-trajectory.jsonl
+          echo "compile trajectory initialized: /tmp/compile-trajectory.jsonl"
+
       - name: Run OpenCode conversion
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -197,6 +207,17 @@ jobs:
           name: opencode-session
           path: /tmp/opencode-session.json
           retention-days: 30
+
+      - name: Upload compile trajectory
+        # One JSONL line per cargo check/build during the conversion.
+        # OBSERVABILITY ONLY — this plugin never affects scoring or pass/fail.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-trajectory
+          path: /tmp/compile-trajectory.jsonl
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Upload converted Rust code
         uses: actions/upload-artifact@v4

@@ -8,5 +8,6 @@
   "model": "deepseek/deepseek-v4-flash",
   "skills": {
     "paths": [".opencode/skills"]
-  }
+  },
+  "plugin": [".opencode/plugins/compile-tracker.ts"]
 }
