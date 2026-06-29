@@ -23,3 +23,6 @@ __pycache__/
 ffi-compare/build/
 .opencode/skills/c-to-rust/
 rust-flashdb/
+
+# macOS
+.DS_Store
