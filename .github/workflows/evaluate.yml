@@ -1,4 +1,4 @@
-# loop-engineer turn 2 epoch 1782655320 evaluating v0.1.2-beta
+# loop-engineer turn 5 epoch 1782693604 evaluating v0.1.5-beta
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -45,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.1.2-beta \
+          gh release download v0.1.5-beta \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp
