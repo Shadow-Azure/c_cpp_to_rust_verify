@@ -23,6 +23,7 @@
  */
 import { appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
+import { execSync } from "node:child_process";
 import type { Plugin, Hooks } from "@opencode-ai/plugin";
 
 const DEFAULT_TRAJECTORY_FILE = "/tmp/compile-trajectory.jsonl";
@@ -44,6 +45,69 @@ function extractCommand(tool: string, args: any): string {
     return JSON.stringify(args);
   } catch {
     return "";
+  }
+}
+
+/**
+ * Derive the working directory the agent's cargo command ran in.
+ *
+ * The conversion skill typically invokes `cd <out-dir> && cargo check ...`.
+ * We parse the LAST `cd <dir>` that appears before the `cargo` token so we
+ * target the project root actually being compiled (not a temp staging dir).
+ * Falls back to the plugin's own process.cwd().
+ *
+ * Pure string parsing — never special-cases a project name.
+ */
+function deriveWorkDir(cmd: string): string {
+  const cargoIdx = cmd.search(/cargo\s+(check|build)\b/);
+  const head = cargoIdx >= 0 ? cmd.slice(0, cargoIdx) : cmd;
+  const cdMatches = [...head.matchAll(/(?:^|&&|;)\s*cd\s+([^\s&;|]+)\s*/g)];
+  if (cdMatches.length > 0) {
+    let dir = cdMatches[cdMatches.length - 1][1];
+    // Strip any surrounding quotes.
+    dir = dir.replace(/^['"]|['"]$/g, "");
+    if (dir) return dir;
+  }
+  return process.cwd();
+}
+
+/**
+ * Whether the agent's command pipes through `head` (output likely truncated).
+ * We only invest in a full recount when truncation is plausible, to avoid
+ * doubling cargo's cost on every invocation.
+ */
+function looksTruncated(cmd: string): boolean {
+  return /\bhead\b/.test(cmd);
+}
+
+/**
+ * Run the plugin's OWN untruncated cargo check to capture the REAL error count.
+ *
+ * Uses `--message-format short` (one diagnostic per line, fast) and counts
+ * lines anchored to `^error` so we don't double-count a path containing the
+ * word "error". Returns the integer count, or null if anything went wrong
+ * (timeout, missing cargo, lock-file conflict, non-zero grep exit, etc.).
+ *
+ * This is OBSERVABILITY ONLY: it never throws into the hook and never alters
+ * the agent's own tool output.
+ */
+function fullErrorCount(workDir: string): number | null {
+  try {
+    // `grep -c` exits 1 when nothing matches; `|| true` keeps execSync happy.
+    const fullCmd = `cd ${workDir} && cargo check --message-format short 2>&1 | grep -c "^error" || true`;
+    const out = execSync(fullCmd, {
+      timeout: 120000,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    })
+      .toString()
+      .trim();
+    const n = parseInt(out, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    // Timeout, missing cargo, lock conflict, parse failure — record absence,
+    // do not crash the conversion.
+    return null;
   }
 }
 
@@ -75,9 +139,20 @@ interface TrajectoryEntry {
   phase: "cargo-check" | "cargo-build";
   cmd: string;
   exit_ok: boolean | null;
+  /** Error count parsed from the agent's (possibly head-truncated) output. */
   errors: number;
   warnings: number;
   error_codes: string[];
+  /**
+   * REAL error count from the plugin's OWN untruncated `cargo check --message-format short`.
+   * Only populated when the agent's command looked truncated (contained `head`),
+   * to avoid doubling cargo's cost on every invocation. null = not attempted
+   * or the recount failed (timeout / lock conflict / missing cargo). When null,
+   * `full_count_note` explains why.
+   * OBSERVABILITY ONLY — never affects scoring.
+   */
+  full_error_count: number | null;
+  full_count_note: string;
 }
 
 function appendEntry(entry: TrajectoryEntry): void {
@@ -118,6 +193,21 @@ export const server: Plugin = async (_input, _options) => {
         new Set(text.match(/error\[E\d+\]/g) || []),
       ).sort();
 
+      // The agent often pipes `cargo check` through `head -80`, truncating the
+      // diagnostics and making `errors` understate reality. When truncation
+      // looks likely, run our OWN untruncated count so the trajectory records
+      // the REAL error total. Skipped otherwise to avoid doubling cargo's cost.
+      let fullErrorCountVal: number | null = null;
+      let fullCountNote = "not-run";
+      if (looksTruncated(cmd)) {
+        const workDir = deriveWorkDir(cmd);
+        fullErrorCountVal = fullErrorCount(workDir);
+        fullCountNote =
+          fullErrorCountVal === null
+            ? "recount-failed-or-timeout"
+            : "recount-ok";
+      }
+
       // Exit success heuristic: cargo writes "Finished" on success. `output.metadata`
       // may carry an exit code; prefer that when present.
       let exitOk: boolean | null = null;
@@ -142,6 +232,8 @@ export const server: Plugin = async (_input, _options) => {
         errors: errorLines.length,
         warnings: warningLines.length,
         error_codes: errorCodes,
+        full_error_count: fullErrorCountVal,
+        full_count_note: fullCountNote,
       };
       appendEntry(entry);
     },
