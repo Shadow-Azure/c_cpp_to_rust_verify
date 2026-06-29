@@ -45,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.1.7-beta \
+          gh release download v0.1.8-beta \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp
