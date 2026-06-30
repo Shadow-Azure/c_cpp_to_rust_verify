@@ -219,6 +219,17 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
+      - name: Upload incremental assembly errors
+        # Detailed per-module errors from translator assemble-incremental --errors-file.
+        # OBSERVABILITY ONLY — this file is never used for scoring.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: incremental-errors
+          path: /tmp/incremental-errors.json
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Upload converted Rust code
         uses: actions/upload-artifact@v4
         with:
