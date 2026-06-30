@@ -21,7 +21,7 @@
  *   output: { title, output, metadata }   <- `output.output` is the tool's stdout/stderr text
  * For the built-in bash tool, input.args is `{ command: string }`.
  */
-import { appendFileSync, mkdirSync, existsSync } from "node:fs";
+import { appendFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { execSync } from "node:child_process";
 import type { Plugin, Hooks } from "@opencode-ai/plugin";
@@ -136,7 +136,7 @@ interface TrajectoryEntry {
   sessionID: string;
   callID: string;
   tool: string;
-  phase: "cargo-check" | "cargo-build";
+  phase: "cargo-check" | "cargo-build" | "incremental-assembly" | "incremental-assembly-final";
   cmd: string;
   exit_ok: boolean | null;
   /** Error count parsed from the agent's (possibly head-truncated) output. */
@@ -170,14 +170,63 @@ export const server: Plugin = async (_input, _options) => {
   const hooks: Hooks = {
     "tool.execute.after": async (input, output) => {
       const tool: string = input?.tool ?? "";
-      // The conversion runs `cargo ...` through the bash tool. Being liberal
-      // here (accepting "bash"/"shell"/"task") keeps the plugin robust if the
-      // agent ever switches tool wrappers.
       if (!/bash|shell|task|terminal/i.test(tool)) return;
 
       const cmd = extractCommand(tool, input?.args);
-      // Only capture compile-invoking commands. Explicitly exclude `cargo test`
-      // (test failures are a separate signal tracked by the eval harness).
+
+      // --- Branch A: translator assemble-incremental ---
+      if (/translator\s+assemble[-_]incremental/.test(cmd)) {
+        const efMatch = cmd.match(/--errors[-_]file\s+(\S+)/);
+        const errorsFile = efMatch ? efMatch[1] : null;
+        if (!errorsFile) {
+          // No errors-file: record a summary noting the gap
+          appendEntry({
+            ts: new Date().toISOString(), sessionID: input?.sessionID ?? "", callID: input?.callID ?? "",
+            tool, phase: "incremental-assembly" as const,
+            cmd: cmd.length > 400 ? cmd.slice(0, 397) + "..." : cmd,
+            exit_ok: null, errors: 0, warnings: 0, error_codes: [],
+            full_error_count: null, full_count_note: "no-errors-file-specified",
+          });
+          return;
+        }
+        // Read errors-file (JSONL) and merge each entry into trajectory
+        try {
+          if (existsSync(errorsFile)) {
+            const content = readFileSync(errorsFile, "utf8");
+            const lines = content.trim().split("\n").filter(Boolean);
+            let totalErrors = 0;
+            for (const line of lines) {
+              try {
+                const detail = JSON.parse(line);
+                totalErrors++;
+                appendEntry({
+                  ts: detail.ts || new Date().toISOString(),
+                  sessionID: input?.sessionID ?? "", callID: input?.callID ?? "",
+                  tool,
+                  phase: detail.phase === "incremental-assembly-final"
+                    ? "incremental-assembly-final" as const
+                    : "incremental-assembly" as const,
+                  cmd: `incremental-assembly (module: ${detail.module || "?"})`,
+                  exit_ok: null, errors: 1, warnings: 0,
+                  error_codes: detail.code ? [detail.code] : [],
+                  full_error_count: null, full_count_note: "from-errors-file",
+                });
+              } catch { /* skip malformed line */ }
+            }
+            // Summary entry
+            appendEntry({
+              ts: new Date().toISOString(), sessionID: input?.sessionID ?? "", callID: input?.callID ?? "",
+              tool, phase: "incremental-assembly-final" as const,
+              cmd: "incremental-assembly-summary",
+              exit_ok: null, errors: totalErrors, warnings: 0, error_codes: [],
+              full_error_count: null, full_count_note: "from-errors-file-summary",
+            });
+          }
+        } catch { /* swallow — never break conversion */ }
+        return;
+      }
+
+      // --- Branch B: cargo check / cargo build ---
       const m = cmd.match(/cargo\s+(check|build)\b/);
       if (!m) return;
       const phase: TrajectoryEntry["phase"] =
