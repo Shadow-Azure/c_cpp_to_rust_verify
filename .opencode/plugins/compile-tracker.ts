@@ -136,7 +136,7 @@ interface TrajectoryEntry {
   sessionID: string;
   callID: string;
   tool: string;
-  phase: "cargo-check" | "cargo-build" | "incremental-assembly" | "incremental-assembly-final";
+  phase: "cargo-check" | "cargo-build" | "incremental-assembly" | "incremental-assembly-final" | "incremental-module-metrics";
   cmd: string;
   exit_ok: boolean | null;
   /** Error count parsed from the agent's (possibly head-truncated) output. */
@@ -221,6 +221,35 @@ export const server: Plugin = async (_input, _options) => {
               exit_ok: null, errors: totalErrors, warnings: 0, error_codes: [],
               full_error_count: null, full_count_note: "from-errors-file-summary",
             });
+          }
+        } catch { /* swallow — never break conversion */ }
+
+        // Also read the progress file and merge per-module metrics into trajectory.
+        // The progress file is written by `translator assemble-incremental --progress-file`.
+        const progressPath = cmd.match(/--progress[-_]file\s+(\S+)/);
+        const progressFile = progressPath ? progressPath[1] : "/tmp/incremental-progress.json";
+        try {
+          if (existsSync(progressFile)) {
+            const content = readFileSync(progressFile, "utf8");
+            const entries = JSON.parse(content);
+            if (Array.isArray(entries)) {
+              for (const entry of entries) {
+                appendEntry({
+                  ts: new Date().toISOString(),
+                  sessionID: input?.sessionID ?? "",
+                  callID: input?.callID ?? "",
+                  tool,
+                  phase: "incremental-module-metrics" as any,
+                  cmd: `module-metrics: ${entry.module || "?"}`,
+                  exit_ok: null,
+                  errors: entry.first_structural_errors || 0,
+                  warnings: 0,
+                  error_codes: [],
+                  full_error_count: entry.residual_after_structural ?? null,
+                  full_count_note: `ai_rounds=${entry.ai_fix_rounds || 0}`,
+                });
+              }
+            }
           }
         } catch { /* swallow — never break conversion */ }
         return;
