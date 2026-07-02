@@ -17,7 +17,7 @@ jobs:
   # ============================================================
   convert:
     name: "Convert: FlashDB C → Rust"
-    runs-on: ubuntu-24.02
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 90
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
@@ -253,7 +253,7 @@ jobs:
   # ============================================================
   evaluate:
     name: "Evaluate: Compile + Test + Performance"
-    runs-on: ubuntu-24.02
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 60
     needs: convert
     steps:
