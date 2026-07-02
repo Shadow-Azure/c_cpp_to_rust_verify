@@ -1,4 +1,4 @@
-# loop-engineer turn 17 epoch 1782864430 evaluating v0.1.17-beta
+# loop-engineer turn 23 evaluating v0.2.4-c2rust-test
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -45,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.1.17-beta \
+          gh release download v0.2.4-c2rust-test \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp
@@ -166,10 +166,10 @@ jobs:
             --dangerously-skip-permissions \
             --print-logs \
             --log-level INFO \
-            --model "deepseek/deepseek-v4-flash" \
+            --model "deepseek/deepseek-v4-pro" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），跳过 Phase 1，不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 跳过 refactor passes，直接从 codegen 结果整合到 rust-flashdb/。5) 转换完成后立即停止，不要启动子 agent 探索代码。"
+            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），跳过 Phase 1，不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。"
 
           # Stop the background export loop
           kill $EXPORT_PID 2>/dev/null || true
