@@ -1,4 +1,4 @@
-# loop-engineer turn 23 evaluating v0.2.4-c2rust-test
+# loop-engineer turn 24 evaluating v0.2.6-c2rust-test
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -17,7 +17,7 @@ jobs:
   # ============================================================
   convert:
     name: "Convert: FlashDB C → Rust"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.02
     timeout-minutes: 90
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
@@ -45,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.2.4-c2rust-test \
+          gh release download v0.2.6-c2rust-test \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp
@@ -253,7 +253,7 @@ jobs:
   # ============================================================
   evaluate:
     name: "Evaluate: Compile + Test + Performance"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.02
     timeout-minutes: 60
     needs: convert
     steps:
