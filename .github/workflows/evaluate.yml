@@ -1,4 +1,4 @@
-# loop-engineer turn 21 evaluating v0.2.1-c2rust-test with deepseek-v4-pro (full prompt)
+# loop-engineer turn 22 evaluating v0.2.3-c2rust-test
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -45,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.2.1-c2rust-test \
+          gh release download v0.2.3-c2rust-test \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp
