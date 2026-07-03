@@ -23,10 +23,13 @@ jobs:
     environment: production
     container:
       image: ubuntu:22.04
-      options: --privileged --network=host
+      options: --privileged
     steps:
       - name: Install system dependencies
         run: |
+          # Configure DNS
+          echo "nameserver 8.8.8.8" > /etc/resolv.conf
+          echo "nameserver 8.8.4.4" >> /etc/resolv.conf
           apt-get update
           apt-get install -y curl wget git jq python3 sudo software-properties-common
 
