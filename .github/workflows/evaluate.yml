@@ -1,4 +1,4 @@
-# loop-engineer turn 24 evaluating v0.2.6-c2rust-test
+# loop-engineer turn 25 evaluating v0.2.6-c2rust-test with Docker
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   # ============================================================
-  # Job 1: 使用 OpenCode + Skill 执行 C→Rust 转换
+  # Job 1: 使用 OpenCode + Skill 执行 C→Rust 转换 (Docker)
   # ============================================================
   convert:
     name: "Convert: FlashDB C → Rust"
@@ -21,24 +21,38 @@ jobs:
     timeout-minutes: 90
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
+    container:
+      image: ubuntu:24.04
+      options: --privileged
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl wget git jq python3 sudo
+
+      - name: Install Node.js
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+          apt-get install -y nodejs
+          npm config set registry https://registry.npmmirror.com
 
       - name: Install OpenCode
         run: |
-          curl -fsSL https://opencode.ai/install | bash
-          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+          npm install -g opencode-ai
+          opencode --version
 
-      - name: Install system dependencies
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install c-to-rust dependencies
         run: |
           # Install libtinfo5 from jammy (22.04) for bundled clang++
           wget -q http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
-          sudo dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb || true
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main"
-          sudo apt-get update
-          sudo apt-get install -y jq python3 bear clang-18
+          dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb || true
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
+          add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main"
+          apt-get update
+          apt-get install -y jq python3 bear clang-18
 
       - name: Download c-to-rust skill from release
         env:
