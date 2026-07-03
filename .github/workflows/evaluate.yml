@@ -22,7 +22,7 @@ jobs:
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
     container:
-      image: ubuntu:latest
+      image: ubuntu:22.04
       options: --privileged
     steps:
       - name: Install system dependencies
