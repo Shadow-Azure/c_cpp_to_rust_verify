@@ -46,13 +46,11 @@ jobs:
 
       - name: Install c-to-rust dependencies
         run: |
-          # Install libtinfo5 from jammy (22.04) for bundled clang++
+          # Install libtinfo5 for bundled clang++
           wget -q http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
           dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb || true
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
-          add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main"
           apt-get update
-          apt-get install -y jq python3 bear clang-18
+          apt-get install -y jq python3 bear clang
 
       - name: Download c-to-rust skill from release
         env:
