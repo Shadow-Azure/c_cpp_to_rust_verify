@@ -22,43 +22,18 @@ jobs:
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
     container:
-      image: ubuntu:22.04
+      image: c2rust-runner:latest
       options: --privileged
     steps:
-      - name: Install system dependencies
+      - name: Verify environment
         run: |
-          # Configure DNS
-          echo "nameserver 8.8.8.8" > /etc/resolv.conf
-          echo "nameserver 8.8.4.4" >> /etc/resolv.conf
-          apt-get update
-          apt-get install -y curl wget git jq python3 sudo software-properties-common make gcc
-          # Install GitHub CLI
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          apt-get update
-          apt-get install -y gh
-
-      - name: Install Node.js
-        run: |
-          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-          apt-get install -y nodejs
-          npm config set registry https://registry.npmmirror.com
-
-      - name: Install OpenCode
-        run: |
-          npm install -g opencode-ai
           opencode --version
+          gh --version
+          clang --version | head -1
+          make --version | head -1
 
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install c-to-rust dependencies
-        run: |
-          # Install libtinfo5 for bundled clang++
-          wget -q http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
-          dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb || true
-          apt-get update
-          apt-get install -y jq python3 bear clang
 
       - name: Download c-to-rust skill from release
         env:
