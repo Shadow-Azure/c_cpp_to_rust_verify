@@ -23,7 +23,7 @@ jobs:
     environment: production
     container:
       image: ubuntu:22.04
-      options: --privileged
+      options: --privileged --network=host
     steps:
       - name: Install system dependencies
         run: |
