@@ -22,7 +22,7 @@ jobs:
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
     container:
-      image: c2rust-runner:latest
+      image: crpi-asv0cbh8pj2ubw6j-vpc.cn-hangzhou.personal.cr.aliyuncs.com/shadow_azure/github:c2rust-runner-latest
       options: --privileged
     steps:
       - name: Verify environment
