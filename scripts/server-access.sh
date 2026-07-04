@@ -8,7 +8,7 @@ SERVER_USER="root"
 
 # SSH 连接函数（使用 sshpass）
 ssh_cmd() {
-    sshpass -p "${SERVER_PASSWORD}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${SERVER_USER}@${SERVER_IP} "$@"
+    sshpass -p "${ALIYUN_SERVER_PASSWORD}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${SERVER_USER}@${SERVER_IP} "$@"
 }
 
 # 检查服务器连接
@@ -87,9 +87,9 @@ runner_logs() {
 # 主函数
 main() {
     # 检查环境变量
-    if [ -z "$SERVER_PASSWORD" ]; then
-        echo "❌ 请设置环境变量 SERVER_PASSWORD"
-        echo "   export SERVER_PASSWORD='your_password'"
+    if [ -z "$ALIYUN_SERVER_PASSWORD" ]; then
+        echo "❌ 请设置环境变量 ALIYUN_SERVER_PASSWORD"
+        echo "   export ALIYUN_SERVER_PASSWORD='your_password'"
         exit 1
     fi
 
