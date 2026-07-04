@@ -16,6 +16,23 @@ C/C++ 到 Rust 迁移验证和评估项目。使用 AI 编码代理（OpenCode +
 - **系统**: Ubuntu 24.04.4 LTS (x86_64)
 - **SSH 连接**: `ssh root@47.98.144.243` (需要密码)
 
+### 本地访问脚本
+
+路径: `scripts/server-access.sh`
+
+```bash
+# 设置密码环境变量
+export SERVER_PASSWORD='your_password'
+
+# 使用脚本
+./scripts/server-access.sh status      # 查看 Runner 状态
+./scripts/server-access.sh restart     # 重启 Runner
+./scripts/server-access.sh docker      # 查看 Docker 状态
+./scripts/server-access.sh resources   # 查看服务器资源
+./scripts/server-access.sh logs        # 查看 Runner 日志
+./scripts/server-access.sh help        # 查看帮助
+```
+
 ## Self-hosted Runners
 
 服务器上运行两个 GitHub Actions Runner：
