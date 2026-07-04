@@ -304,6 +304,11 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 60
     needs: convert
+    container:
+      image: crpi-asv0cbh8pj2ubw6j-vpc.cn-hangzhou.personal.cr.aliyuncs.com/shadow_azure/github:c2rust-runner-latest
+      credentials:
+        username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+        password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -314,19 +319,13 @@ jobs:
           name: rust-flashdb
           path: rust-flashdb/
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
       - name: Install system dependencies
         continue-on-error: true
         run: |
-          for i in 1 2 3; do
-            sudo apt-get update && sudo apt-get install -y bc python3 && break
-            echo "apt-get attempt $i failed, retrying in 10s..."
-            sleep 10
-          done
+          # 使用阿里云镜像源加速下载
+          sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
+          sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
+          apt-get update && apt-get install -y bc python3
 
       # --- 编译评测 ---
       - name: "Evaluate: Compilation"
@@ -341,11 +340,6 @@ jobs:
         run: |
           bash scripts/eval-tests.sh > /tmp/test-result.json
           echo "result-file=/tmp/test-result.json" >> $GITHUB_OUTPUT
-
-      # --- C 构建工具 (功能等价 + 性能测试都需要) ---
-      - name: Install C build tools
-        continue-on-error: true
-        run: sudo apt-get install -y gcc make || echo "gcc/make install failed, equiv/perf may fail"
 
       # --- 功能等价评测 ---
       - name: "Evaluate: FFI Equivalence"
