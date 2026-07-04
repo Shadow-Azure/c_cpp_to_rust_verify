@@ -26,3 +26,4 @@ rust-flashdb/
 
 # macOS
 .DS_Store
+logs/*

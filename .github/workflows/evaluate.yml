@@ -1,4 +1,4 @@
-# loop-engineer turn 25 evaluating v0.2.8-c2rust-test with Docker
+# loop-engineer turn 25 evaluating v0.2.9-c2rust-test with Docker
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -47,7 +47,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.2.8-c2rust-test \
+          gh release download v0.2.9-c2rust-test \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp
@@ -366,18 +366,29 @@ jobs:
             /tmp/perf-result.json \
             /tmp/eval-report.md
 
-      - name: Download incremental progress
+      - name: Download compile trajectory
         if: always()
         uses: actions/download-artifact@v4
         with:
-          name: incremental-progress
-          path: /tmp/
+          name: compile-trajectory
+          path: /tmp/convert-artifacts/
           if-no-files-found: ignore
 
-      - name: Enrich eval report with incremental assembly details
+      - name: Download opencode session
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-session
+          path: /tmp/convert-artifacts/
+          if-no-files-found: ignore
+
+      - name: Analyze conversion process
         if: always()
         run: |
-          python3 scripts/append-incremental-details.py /tmp/incremental-progress.json >> /tmp/eval-report.md 2>/dev/null || true
+          python3 scripts/analyze-session.py \
+            /tmp/convert-artifacts/opencode-session.json \
+            /tmp/convert-artifacts/compile-trajectory.jsonl \
+            >> /tmp/eval-report.md 2>/dev/null || true
 
       # --- 输出报告 ---
       - name: "Report: Job Summary"
