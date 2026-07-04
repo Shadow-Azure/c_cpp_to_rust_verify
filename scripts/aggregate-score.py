@@ -29,10 +29,15 @@ def score_compile(result: dict) -> float:
 
 
 def score_test(result: dict) -> float:
-    """测试评分: 通过率 = passed / total, 全部通过=1.0"""
+    """测试评分: 通过率 = passed / total, 全部通过=1.0
+    当 total=0 时：
+    - 如果 pass=true（编译成功但无测试），返回 0.5（基础分）
+    - 如果 pass=false（测试失败），返回 0.0
+    """
     total = result.get("total", 0)
     if total == 0:
-        return 0.0
+        # 无测试用例：编译成功给基础分，否则 0
+        return 0.5 if result.get("pass", False) else 0.0
     passed = result.get("passed", 0)
     return passed / total
 
@@ -165,10 +170,17 @@ def generate_report(
     if "error" in test_result:
         lines.append(f"- ⚠️ 错误: {test_result['error']}")
     else:
-        lines.append(f"- 通过: {test_result.get('passed', 0)}")
-        lines.append(f"- 失败: {test_result.get('failed', 0)}")
-        lines.append(f"- 忽略: {test_result.get('ignored', 0)}")
-        lines.append(f"- 总计: {test_result.get('total', 0)}")
+        total = test_result.get('total', 0)
+        if total == 0:
+            if test_result.get('pass', False):
+                lines.append("- ⚠️ 无测试用例（编译成功）")
+            else:
+                lines.append("- ❌ 测试执行失败")
+        else:
+            lines.append(f"- 通过: {test_result.get('passed', 0)}")
+            lines.append(f"- 失败: {test_result.get('failed', 0)}")
+            lines.append(f"- 忽略: {test_result.get('ignored', 0)}")
+            lines.append(f"- 总计: {total}")
     lines.append("")
 
     # 功能等价详情

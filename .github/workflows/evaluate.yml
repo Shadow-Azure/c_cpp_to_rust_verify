@@ -1,4 +1,3 @@
-# loop-engineer turn 25 evaluating v0.2.9-c2rust-test with Docker
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -6,6 +5,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  SKILL_VERSION: v0.2.9-c2rust-test
 
 jobs:
   # ============================================================
@@ -39,7 +41,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .opencode/skills/c-to-rust
-          key: c-to-rust-skill-v0.2.8-${{ runner.os }}
+          key: c-to-rust-skill-${{ env.SKILL_VERSION }}-${{ runner.os }}
 
       - name: Download c-to-rust skill from release
         if: steps.cache-skill.outputs.cache-hit != 'true'
@@ -47,7 +49,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.2.9-c2rust-test \
+          gh release download ${{ env.SKILL_VERSION }} \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp

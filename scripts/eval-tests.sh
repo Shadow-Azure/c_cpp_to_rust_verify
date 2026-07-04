@@ -45,10 +45,11 @@ if [ "$EXIT_CODE" -eq 124 ]; then
   exit 0
 fi
 
-# 解析测试结果 — 用 sed 替代 grep -oP，更可靠
-PASSED=$(echo "$TEST_OUTPUT" | sed -n 's/.*\([0-9]\+\) passed.*/\1/p' | head -1)
-FAILED=$(echo "$TEST_OUTPUT" | sed -n 's/.*\([0-9]\+\) failed.*/\1/p' | head -1)
-IGNORED=$(echo "$TEST_OUTPUT" | sed -n 's/.*\([0-9]\+\) ignored.*/\1/p' | head -1)
+# 解析测试结果 — 聚合所有 test result: 行（unit tests + integration tests）
+# 使用 grep -oE 提取数字，awk 累加
+PASSED=$(echo "$TEST_OUTPUT" | grep -oE '[0-9]+ passed' | awk '{sum+=$1} END {print sum+0}')
+FAILED=$(echo "$TEST_OUTPUT" | grep -oE '[0-9]+ failed' | awk '{sum+=$1} END {print sum+0}')
+IGNORED=$(echo "$TEST_OUTPUT" | grep -oE '[0-9]+ ignored' | awk '{sum+=$1} END {print sum+0}')
 
 # 确保有默认值
 PASSED=${PASSED:-0}
