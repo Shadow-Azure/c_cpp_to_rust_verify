@@ -62,41 +62,50 @@ jobs:
           # Remove smoke-c2rust to avoid opencode loading wrong skill
           rm -rf .opencode/skills/smoke-c2rust
 
-          # Prefer clang-15 for c2rust compatibility
-          if command -v clang-15 &>/dev/null; then
-            CLANG_VERSION=15
-            echo "✅ Using clang-15"
-          else
-            CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
-            echo "⚠️ clang-15 not found, using default clang++ (version $CLANG_VERSION)"
+          # Detect clang version and find include directory
+          CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
+          echo "Detected clang version: $CLANG_VERSION"
+
+          # Find the actual include directory (may have minor version like 14.0.0)
+          SYS_RES=""
+          if [ -n "$CLANG_VERSION" ]; then
+            # Try exact version first, then with .0.0 suffix
+            for ver in "${CLANG_VERSION}" "${CLANG_VERSION}.0" "${CLANG_VERSION}.0.0"; do
+              candidate="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${ver}"
+              if [ -d "$candidate/include" ]; then
+                SYS_RES="$candidate"
+                echo "✅ Found clang headers at: $SYS_RES"
+                break
+              fi
+            done
           fi
 
-          if [ -n "$CLANG_VERSION" ]; then
-            # Try to find system clang headers
-            SYS_RES="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${CLANG_VERSION}"
-            echo "SYS_RES=$SYS_RES exists=$(test -d $SYS_RES/include && echo yes || echo no)"
-
-            # Check if skill has bundled clang headers
-            BUNDLED_RES=".opencode/skills/c-to-rust/lib/clang/${CLANG_VERSION}"
-            echo "BUNDLED_RES=$BUNDLED_RES exists=$(test -d $BUNDLED_RES && echo yes || echo no)"
-
-            if [ -d "$BUNDLED_RES" ] && [ -d "$SYS_RES/include" ]; then
-              mkdir -p "$BUNDLED_RES"
-              rm -rf "$BUNDLED_RES/include"
-              cp -r "$SYS_RES/include" "$BUNDLED_RES/include"
-              echo "✅ Copied clang headers: $SYS_RES/include -> $BUNDLED_RES/include"
-              ls "$BUNDLED_RES/include/" | head -5
-            else
-              echo "⚠️ Could not copy headers, will use CPATH fallback"
-              # Set CPATH to system headers as fallback
-              if [ -d "$SYS_RES/include" ]; then
-                export CPATH="$SYS_RES/include:${CPATH:-}"
-                export C_INCLUDE_PATH="$SYS_RES/include:${C_INCLUDE_PATH:-}"
-                echo "✅ Set CPATH fallback to $SYS_RES/include"
-              fi
+          # Fallback: find any clang include directory
+          if [ -z "$SYS_RES" ]; then
+            SYS_RES=$(find /usr/lib/llvm-* -path "*/lib/clang/*/include" -type d 2>/dev/null | head -1 | sed 's|/include$||')
+            if [ -n "$SYS_RES" ]; then
+              echo "✅ Found clang headers via fallback: $SYS_RES"
             fi
+          fi
+
+          echo "SYS_RES=$SYS_RES exists=$(test -d "$SYS_RES/include" && echo yes || echo no)"
+
+          # Check if skill has bundled clang headers
+          BUNDLED_RES=".opencode/skills/c-to-rust/lib/clang/${CLANG_VERSION}"
+          echo "BUNDLED_RES=$BUNDLED_RES exists=$(test -d $BUNDLED_RES && echo yes || echo no)"
+
+          if [ -n "$SYS_RES" ] && [ -d "$SYS_RES/include" ]; then
+            # Copy to bundled location for multiple possible version paths
+            for ver in "${CLANG_VERSION}" "18" "15"; do
+              BUNDLED=".opencode/skills/c-to-rust/lib/clang/${ver}"
+              mkdir -p "$BUNDLED"
+              rm -rf "$BUNDLED/include"
+              cp -r "$SYS_RES/include" "$BUNDLED/include"
+              echo "✅ Copied clang headers: $SYS_RES/include -> $BUNDLED/include"
+            done
+            ls "$BUNDLED_RES/include/" | head -5
           else
-            echo "⚠️ Could not detect clang version, skipping header setup"
+            echo "⚠️ Could not find system clang headers"
           fi
 
           echo "✅ c-to-rust skill ready"
@@ -153,28 +162,32 @@ jobs:
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
+          export CLANG_CXX="clang++"
 
-          # Prefer clang-15 for c2rust compatibility, fallback to default clang++
-          if command -v clang-15 &>/dev/null; then
-            export CLANG_CXX="clang-15"
-            CLANG_VERSION=15
-            echo "✅ Using clang-15"
-          else
-            export CLANG_CXX="clang++"
-            CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
-            echo "⚠️ clang-15 not found, using default clang++ (version $CLANG_VERSION)"
+          # Find clang include directory (handle version suffix like 14.0.0)
+          CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
+          CLANG_INCLUDE=""
+          if [ -n "$CLANG_VERSION" ]; then
+            for ver in "${CLANG_VERSION}" "${CLANG_VERSION}.0" "${CLANG_VERSION}.0.0"; do
+              candidate="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${ver}/include"
+              if [ -d "$candidate" ]; then
+                CLANG_INCLUDE="$candidate"
+                break
+              fi
+            done
           fi
 
-          # Set CPATH for clang headers
-          if [ -n "$CLANG_VERSION" ]; then
-            CLANG_INCLUDE="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${CLANG_VERSION}/include"
-            if [ -d "$CLANG_INCLUDE" ]; then
-              export CPATH="$CLANG_INCLUDE:${CPATH:-}"
-              export C_INCLUDE_PATH="$CLANG_INCLUDE:${C_INCLUDE_PATH:-}"
-              echo "✅ Set CPATH to $CLANG_INCLUDE"
-            else
-              echo "⚠️ Clang include directory not found: $CLANG_INCLUDE"
-            fi
+          # Fallback: find any clang include directory
+          if [ -z "$CLANG_INCLUDE" ]; then
+            CLANG_INCLUDE=$(find /usr/lib/llvm-* -path "*/lib/clang/*/include" -type d 2>/dev/null | head -1)
+          fi
+
+          if [ -n "$CLANG_INCLUDE" ]; then
+            export CPATH="$CLANG_INCLUDE:${CPATH:-}"
+            export C_INCLUDE_PATH="$CLANG_INCLUDE:${C_INCLUDE_PATH:-}"
+            echo "✅ Set CPATH to $CLANG_INCLUDE"
+          else
+            echo "⚠️ Clang include directory not found"
           fi
 
           # Start a background session-export loop so that intermediate progress
