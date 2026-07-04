@@ -149,8 +149,18 @@ jobs:
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
 
-          # Dynamically detect clang version for CPATH
-          CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
+          # Prefer clang-15 for c2rust compatibility, fallback to default clang++
+          if command -v clang-15 &>/dev/null; then
+            export CLANG_CXX="clang-15"
+            CLANG_VERSION=15
+            echo "✅ Using clang-15"
+          else
+            export CLANG_CXX="clang++"
+            CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
+            echo "⚠️ clang-15 not found, using default clang++ (version $CLANG_VERSION)"
+          fi
+
+          # Set CPATH for clang headers
           if [ -n "$CLANG_VERSION" ]; then
             CLANG_INCLUDE="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${CLANG_VERSION}/include"
             if [ -d "$CLANG_INCLUDE" ]; then
@@ -160,8 +170,6 @@ jobs:
             else
               echo "⚠️ Clang include directory not found: $CLANG_INCLUDE"
             fi
-          else
-            echo "⚠️ Could not detect clang version, CPATH not set"
           fi
 
           # Start a background session-export loop so that intermediate progress
