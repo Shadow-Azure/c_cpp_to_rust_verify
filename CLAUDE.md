@@ -21,6 +21,9 @@ C/C++ 到 Rust 迁移验证和评估项目。使用 AI 编码代理（OpenCode +
 路径: `scripts/server-access.sh`
 
 ```bash
+# 加载环境变量（新会话需要先执行）
+source ~/.zshrc
+
 # 使用脚本（密码已配置在环境变量 ALIYUN_SERVER_PASSWORD 中）
 ./scripts/server-access.sh status      # 查看 Runner 状态
 ./scripts/server-access.sh restart     # 重启 Runner
