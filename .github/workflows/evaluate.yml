@@ -34,7 +34,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Cache c-to-rust skill
+        id: cache-skill
+        uses: actions/cache@v4
+        with:
+          path: .opencode/skills/c-to-rust
+          key: c-to-rust-skill-v0.2.8-${{ runner.os }}
+
       - name: Download c-to-rust skill from release
+        if: steps.cache-skill.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
@@ -47,10 +55,13 @@ jobs:
           mv .opencode/skills/c-to-rust-linux-x86_64 .opencode/skills/c-to-rust
           chmod +x .opencode/skills/c-to-rust/bin/*
           rm /tmp/c-to-rust-linux-x86_64.tar.gz
+          echo "✅ c-to-rust skill downloaded and extracted"
+
+      - name: Setup c-to-rust skill
+        run: |
           # Remove smoke-c2rust to avoid opencode loading wrong skill
           rm -rf .opencode/skills/smoke-c2rust
           # Symlink system clang-18 headers to bundled clang's resource dir
-          # Use exact paths (no glob) to avoid matching issues
           BUNDLED_RES=".opencode/skills/c-to-rust/lib/clang/18"
           SYS_RES="/usr/lib/llvm-18/lib/clang/18"
           echo "BUNDLED_RES=$BUNDLED_RES exists=$(test -d $BUNDLED_RES && echo yes || echo no)"
@@ -64,10 +75,9 @@ jobs:
           else
             echo "⚠️ Could not copy headers, will use CPATH fallback"
           fi
-          echo "✅ c-to-rust skill downloaded and extracted"
+          echo "✅ c-to-rust skill ready"
           ls -la .opencode/skills/c-to-rust/
           .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
-          # Verify tools work
           .opencode/skills/c-to-rust/bin/clang++ --version 2>&1 | head -3 || echo "clang++ check done"
           ldd .opencode/skills/c-to-rust/bin/ir 2>&1 | grep "not found" || echo "ir deps OK"
 
