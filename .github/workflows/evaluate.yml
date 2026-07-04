@@ -62,9 +62,14 @@ jobs:
           # Remove smoke-c2rust to avoid opencode loading wrong skill
           rm -rf .opencode/skills/smoke-c2rust
 
-          # Dynamically detect clang version
-          CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
-          echo "Detected clang version: $CLANG_VERSION"
+          # Prefer clang-15 for c2rust compatibility
+          if command -v clang-15 &>/dev/null; then
+            CLANG_VERSION=15
+            echo "✅ Using clang-15"
+          else
+            CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
+            echo "⚠️ clang-15 not found, using default clang++ (version $CLANG_VERSION)"
+          fi
 
           if [ -n "$CLANG_VERSION" ]; then
             # Try to find system clang headers
