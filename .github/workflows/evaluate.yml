@@ -1,4 +1,4 @@
-# loop-engineer turn 25 evaluating v0.2.6-c2rust-test with Docker
+# loop-engineer turn 25 evaluating v0.2.8-c2rust-test with Docker
 name: FlashDB C→Rust Migration Evaluation
 
 on:
@@ -43,7 +43,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           mkdir -p .opencode/skills
-          gh release download v0.2.6-c2rust-test \
+          gh release download v0.2.8-c2rust-test \
             --repo Shadow-Azure/c_cpp_to_rust \
             -p "c-to-rust-linux-x86_64.tar.gz" \
             -D /tmp
