@@ -148,8 +148,21 @@ jobs:
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
-          export CPATH="/usr/lib/llvm-18/lib/clang/18/include:${CPATH:-}"
-          export C_INCLUDE_PATH="/usr/lib/llvm-18/lib/clang/18/include:${C_INCLUDE_PATH:-}"
+
+          # Dynamically detect clang version for CPATH
+          CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
+          if [ -n "$CLANG_VERSION" ]; then
+            CLANG_INCLUDE="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${CLANG_VERSION}/include"
+            if [ -d "$CLANG_INCLUDE" ]; then
+              export CPATH="$CLANG_INCLUDE:${CPATH:-}"
+              export C_INCLUDE_PATH="$CLANG_INCLUDE:${C_INCLUDE_PATH:-}"
+              echo "✅ Set CPATH to $CLANG_INCLUDE"
+            else
+              echo "⚠️ Clang include directory not found: $CLANG_INCLUDE"
+            fi
+          else
+            echo "⚠️ Could not detect clang version, CPATH not set"
+          fi
 
           # Start a background session-export loop so that intermediate progress
           # is visible in CI logs even if the run is killed by timeout.
