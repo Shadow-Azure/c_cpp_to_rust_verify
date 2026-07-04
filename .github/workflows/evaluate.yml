@@ -24,6 +24,9 @@ jobs:
     container:
       image: crpi-asv0cbh8pj2ubw6j-vpc.cn-hangzhou.personal.cr.aliyuncs.com/shadow_azure/github:c2rust-runner-latest
       options: --privileged
+      credentials:
+        username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+        password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
     steps:
       - name: Verify environment
         run: |
