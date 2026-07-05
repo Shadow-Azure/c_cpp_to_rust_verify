@@ -118,8 +118,15 @@ RUST_BUILD_OK=false
 RUST_ERROR=""
 
 if timeout 600 cargo build --release >/tmp/equiv-rust-build.log 2>&1; then
+  # Detect package name from Cargo.toml
+  PACKAGE_NAME=$(grep '^name' Cargo.toml 2>/dev/null | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+  if [ -z "$PACKAGE_NAME" ]; then
+    PACKAGE_NAME="flashdb"  # fallback
+  fi
+
   RUST_LIB=""
-  for lib in target/release/libflashdb.a target/release/libflashdb.rlib; do
+  for lib in "target/release/lib${PACKAGE_NAME}.a" "target/release/lib${PACKAGE_NAME}.rlib" \
+             "target/release/libflashdb.a" "target/release/libflashdb.rlib"; do
     if [ -f "$lib" ]; then
       RUST_LIB="$lib"
       break
@@ -129,7 +136,7 @@ if timeout 600 cargo build --release >/tmp/equiv-rust-build.log 2>&1; then
     cp "$RUST_LIB" "$FFI_DIR/build/libflashdb_rust.a"
     RUST_BUILD_OK=true
   else
-    RUST_ERROR="Rust library file not found after build (no .a or .rlib)"
+    RUST_ERROR="Rust library file not found after build (searched: lib${PACKAGE_NAME}.a, libflashdb.a)"
   fi
 else
   RUST_ERROR=$(head -5 /tmp/equiv-rust-build.log 2>/dev/null | tr '\n' ' ' | head -c 200)
