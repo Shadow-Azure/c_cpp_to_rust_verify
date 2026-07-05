@@ -44,16 +44,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 # 安装 OpenCode
 RUN npm install -g opencode-ai
 
-# 使用国内 Rust 镜像源（加速）
-ENV RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
-ENV RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
+# 使用 rsproxy.cn 镜像源（阿里云主机到 USTC 不稳定，实测 USTC 17KB/s 卡死，rsproxy 16.7MB/s）
+ENV RUSTUP_DIST_SERVER=https://rsproxy.cn
+ENV RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
 
 # 安装 Rust 工具链（使用国内 rustup 安装器）
-RUN curl -sSf -o /tmp/rustup-init https://mirrors.ustc.edu.cn/rust-static/rustup/dist/x86_64-unknown-linux-gnu/rustup-init && \
+RUN curl -sSf -o /tmp/rustup-init https://rsproxy.cn/rustup/dist/x86_64-unknown-linux-gnu/rustup-init && \
     chmod +x /tmp/rustup-init && \
     /tmp/rustup-init -y --default-toolchain stable && \
     . "$HOME/.cargo/env" && \
     rustup component add rustfmt clippy && \
+    rustup toolchain install nightly-2023-04-15 --profile minimal && \
     rm /tmp/rustup-init
 
 # 安装 ripgrep (代码搜索工具) - 使用官方地址
