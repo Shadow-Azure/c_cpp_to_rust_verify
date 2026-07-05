@@ -141,17 +141,23 @@ def generate_report(
     lines.append(f"|------|------|------|------|")
     lines.append(f"| 编译 | {compile_w:.0%} | {s_compile:.1%} | {'✅ 通过' if compile_result.get('pass') else '❌ 失败'} |")
     lines.append(f"| 测试 | {test_w:.0%} | {s_test:.1%} | {'✅ 通过' if test_result.get('pass') else '❌ 失败'} |")
-    # 功能等价状态: 有 API 覆盖率数据时显示覆盖率，否则显示测试结果
+    # 功能等价状态: 根据实际得分显示，同时显示 API 覆盖率
     equiv_cov = equiv_result.get("api_coverage", {})
     if equiv_cov and equiv_cov.get("expected", 0) > 0:
         cov_pct = equiv_cov.get("implemented", 0) / equiv_cov["expected"]
-        equiv_status = f'✅ {cov_pct:.0%} API' if cov_pct > 0.9 else (f'⚠️ {cov_pct:.0%} API' if cov_pct > 0 else '❌ 无 API')
-    elif s_equiv > 0.9:
-        equiv_status = '✅ 等价'
-    elif s_equiv > 0:
-        equiv_status = '⚠️ 部分'
+        cov_label = f'{cov_pct:.0%} API'
     else:
-        equiv_status = '❌ 无 FFI'
+        cov_label = '无 API'
+
+    # 状态基于实际得分
+    if equiv_result.get("link_error") or equiv_result.get("rust_build_error"):
+        equiv_status = f'❌ 构建失败 ({cov_label})'
+    elif s_equiv > 0.9:
+        equiv_status = f'✅ 等价 ({cov_label})'
+    elif s_equiv > 0:
+        equiv_status = f'⚠️ 部分 ({cov_label})'
+    else:
+        equiv_status = f'❌ 失败 ({cov_label})'
     lines.append(f"| 功能等价 | {equiv_w:.0%} | {s_equiv:.1%} | {equiv_status} |")
     lines.append(f"| 性能 | {perf_w:.0%} | {s_perf:.1%} | {'✅ 达标' if s_perf > 0.5 else '❌ 不达标'} |")
     lines.append("")
