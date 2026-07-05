@@ -26,7 +26,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 RUST_DIR="$ROOT_DIR/rust-flashdb"
-FFI_DIR="$ROOT_DIR/ffi-compare"
+FFI_DIR="$ROOT_DIR/ffi-test"  # 预置的 FFI 测试基础设施
 FFI_RS="$RUST_DIR/src/ffi.rs"
 C_API_H="$ROOT_DIR/flashdb/inc/flashdb.h"
 DRIVER_C="$FFI_DIR/compare_tests.c"
@@ -81,7 +81,13 @@ if [ ! -d "$RUST_DIR" ] || [ ! -f "$RUST_DIR/Cargo.toml" ]; then
 fi
 
 if [ ! -f "$DRIVER_C" ]; then
-  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "message": "compare_tests.c driver not found"}\n' \
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "message": "ffi-test/compare_tests.c not found (should be pre-built in repo)"}\n' \
+    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT"
+  exit 0
+fi
+
+if [ ! -f "$FFI_DIR/Makefile" ]; then
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "message": "ffi-test/Makefile not found (should be pre-built in repo)"}\n' \
     "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT"
   exit 0
 fi
