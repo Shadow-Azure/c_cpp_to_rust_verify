@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  SKILL_VERSION: v0.2.15-c2rust-test
+  SKILL_VERSION: v0.2.16-c2rust-test
 
 jobs:
   # ============================================================
@@ -108,6 +108,16 @@ jobs:
             ls "$BUNDLED_RES/include/" | head -5
           else
             echo "⚠️ Could not find system clang headers"
+          fi
+
+          # Copy agents from skill to opencode config
+          if [ -d ".opencode/skills/c-to-rust/agents" ]; then
+            mkdir -p .opencode/agents
+            cp -r .opencode/skills/c-to-rust/agents/* .opencode/agents/
+            echo "✅ Agents configured:"
+            ls -la .opencode/agents/
+          else
+            echo "⚠️ No agents directory in skill"
           fi
 
           echo "✅ c-to-rust skill ready"
