@@ -9,11 +9,15 @@
 
 CC ?= gcc
 CFLAGS = -O0 -g3 -Wall -Wno-format
-INCLUDES = -I../flashdb/inc -I../flashdb/tests -I.
+INCLUDES = -I../flashdb/inc -I.
 
-# 库路径
-C_LIB_DIR = ../flashdb
-RUST_LIB_DIR = ../rust-flashdb/target/release
+# FlashDB 源文件
+FDB_SRC_DIR = ../flashdb/src
+FDB_SRCS = $(FDB_SRC_DIR)/fdb.c \
+           $(FDB_SRC_DIR)/fdb_file.c \
+           $(FDB_SRC_DIR)/fdb_kvdb.c \
+           $(FDB_SRC_DIR)/fdb_tsdb.c \
+           $(FDB_SRC_DIR)/fdb_utils.c
 
 # 构建目录
 BUILD_DIR = build
@@ -22,18 +26,25 @@ BUILD_DIR = build
 
 all: compare-c compare-rust
 
-# 编译 C 静态库
+# 编译 C 静态库（直接编译源文件）
 c-lib:
 	@echo "=== Building C static library ==="
-	cd $(C_LIB_DIR) && make clean && make lib
 	@mkdir -p $(BUILD_DIR)
-	cp $(C_LIB_DIR)/lib/*.a $(BUILD_DIR)/libflashdb_c.a 2>/dev/null || \
-	cp $(C_LIB_DIR)/build/*.a $(BUILD_DIR)/libflashdb_c.a 2>/dev/null || \
-	(echo "ERROR: C library not found"; exit 1)
+	@# 编译每个源文件
+	@for src in $(FDB_SRCS); do \
+		echo "  Compiling $$src..."; \
+		$(CC) $(CFLAGS) $(INCLUDES) \
+			-DFDB_USING_FILE_MODE -DFDB_USING_FILE_POSIX_MODE \
+			-DFDB_WRITE_GRAN=1 -DFDB_USING_KVDB -DFDB_USING_TSDB \
+			-DFDB_DEBUG_ENABLE \
+			-c $$src -o $(BUILD_DIR)/$$(basename $$src .c).o || exit 1; \
+	done
+	@# 创建静态库
+	ar rcs $(BUILD_DIR)/libflashdb_c.a $(BUILD_DIR)/*.o
 	@echo "✅ C library built: $(BUILD_DIR)/libflashdb_c.a"
 
 # 编译 C 参考测试
-compare-c: $(BUILD_DIR)/libflashdb_c.a
+compare-c: c-lib
 	@echo "=== Building C reference test ==="
 	$(CC) $(CFLAGS) $(INCLUDES) -DFDB_USING_FILE_MODE -DFDB_USING_FILE_POSIX_MODE \
 		-DFDB_WRITE_GRAN=1 -DFDB_USING_KVDB -DFDB_USING_TSDB -DFDB_DEBUG_ENABLE \

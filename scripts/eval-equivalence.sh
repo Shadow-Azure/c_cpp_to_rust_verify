@@ -100,8 +100,12 @@ cd "$FFI_DIR"
 rm -rf build
 
 if ! make c-lib >/tmp/equiv-c-build.log 2>&1; then
-  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "message": "C library build failed"}\n' \
-    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT"
+  # Capture error details (first 500 chars)
+  C_BUILD_ERROR=$(head -c 500 /tmp/equiv-c-build.log 2>/dev/null | tr '\n' ' ' | sed 's/"/\\"/g')
+  printf '{"pass": false, "ffi_present": true, "passed": 0, "failed": 0, "total": 0, "api_coverage": {"expected": %d, "implemented": %d}, "c_build_error": "%s", "message": "C library build failed (see equiv-detail.log)"}\n' \
+    "$EXPECTED_COUNT" "$IMPLEMENTED_COUNT" "$C_BUILD_ERROR"
+  # Copy build log to detail log for artifact upload
+  cp /tmp/equiv-c-build.log /tmp/equiv-detail.log 2>/dev/null || true
   exit 0
 fi
 
