@@ -171,22 +171,33 @@ def generate_report(
         lines.append(f"- 编译警告数: {compile_result.get('warnings', 'N/A')}")
     lines.append("")
 
+    # Unsafe 函数比例
+    total_fn = compile_result.get("total_fn", 0)
+    unsafe_fn = compile_result.get("unsafe_fn", 0)
+    if total_fn > 0:
+        unsafe_pct = unsafe_fn / total_fn * 100
+        lines.append("## Unsafe 函数分析\n")
+        lines.append(f"- 总函数数: {total_fn}")
+        lines.append(f"- 含 unsafe 操作的函数数: {unsafe_fn} ({unsafe_pct:.1f}%)")
+        lines.append(f"  - unsafe 操作包括: `null_mut`、`null::<T>`、`ptr::null`、`&raw mut`")
+        lines.append("")
+
     # 测试详情
     lines.append("## 测试详情\n")
     if "error" in test_result:
         lines.append(f"- ⚠️ 错误: {test_result['error']}")
     else:
-        total = test_result.get('total', 0)
-        if total == 0:
+        total_tests = test_result.get('total', 0)
+        if total_tests == 0:
             if test_result.get('pass', False):
-                lines.append("- ⚠️ 无测试用例（编译成功）")
+                lines.append("- ⚠️ 无测试用例（c2rust 不自动生成单元测试，基础分 0.5）")
             else:
                 lines.append("- ❌ 测试执行失败")
         else:
             lines.append(f"- 通过: {test_result.get('passed', 0)}")
             lines.append(f"- 失败: {test_result.get('failed', 0)}")
             lines.append(f"- 忽略: {test_result.get('ignored', 0)}")
-            lines.append(f"- 总计: {total}")
+            lines.append(f"- 总计: {total_tests}")
     lines.append("")
 
     # 功能等价详情
@@ -241,6 +252,12 @@ def generate_report(
         lines.append(f"- ⚠️ 错误: {perf_result['error']}")
     elif not ratios:
         lines.append("- ⚠️ 无可用的性能数据")
+        note = perf_result.get("note", "")
+        if note:
+            lines.append(f"- 原因: {note}")
+        c_bench_diag = perf_result.get("c_bench_diag", "")
+        if c_bench_diag:
+            lines.append(f"- C benchmark 诊断: {c_bench_diag}")
     else:
         lines.append(f"- 平均性能比: {avg_ratio}x (基准: ≤{max_r}x)")
         lines.append("")

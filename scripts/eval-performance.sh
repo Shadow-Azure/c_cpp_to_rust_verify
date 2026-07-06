@@ -49,22 +49,33 @@ fi
 # ---------- Parse C benchmark results ----------
 # C output format: "  %-30s | %6u ops | %9.1f us | %8.1f ops/s | %7.2f us/op"
 C_METRICS="{}"
+C_BENCH_DIAG=""
 if [ -n "$C_BENCH_OUTPUT" ]; then
-  C_METRICS=$(python3 -c "
+  C_BENCH_PARSE_RESULT=$(python3 -c "
 import re, json, sys
 
 output = open('/tmp/c-bench-run.log').read()
 metrics = {}
-for line in output.split('\n'):
+lines = output.strip().split('\n')
+matched = 0
+for line in lines:
     m = re.match(r'\s+(.+?)\s+\|\s+(\d+)\s+ops\s+\|\s+([\d.]+)\s+us\s+\|\s+([\d.]+)\s+ops/s\s+\|\s+([\d.]+)\s+us/op', line)
     if m:
         name = m.group(1).strip()
         us_per_op = float(m.group(5))
-        # Normalize name to match YAML keys
         key = name.lower().replace(' ', '_').replace('(', '').replace(')', '')
         metrics[key] = round(us_per_op, 2)
-print(json.dumps(metrics))
+        matched += 1
+
+if matched == 0 and len(lines) > 0:
+    # Output diagnostic: first 5 non-empty lines
+    sample = [l.strip() for l in lines if l.strip()][:5]
+    print(json.dumps({'metrics': metrics, 'diag': 'C benchmark output did not match expected format. First lines: ' + repr(sample)}))
+else:
+    print(json.dumps({'metrics': metrics, 'diag': ''}))
 " 2>/dev/null)
+  C_METRICS=$(echo "$C_BENCH_PARSE_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('metrics',{})))" 2>/dev/null || echo "{}")
+  C_BENCH_DIAG=$(echo "$C_BENCH_PARSE_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('diag',''))" 2>/dev/null || echo "")
 fi
 
 # ---------- Run Rust benchmarks ----------
@@ -102,6 +113,12 @@ print(json.dumps(metrics))
 " 2>/dev/null)
 fi
 
+# ---------- Build diagnostic note ----------
+DIAG_NOTE=""
+if [ -n "$C_BENCH_DIAG" ]; then
+  DIAG_NOTE="$C_BENCH_DIAG"
+fi
+
 # ---------- Output JSON ----------
 if [ "$C_BUILD_OK" = false ]; then
   printf '{"c_metrics": {}, "rust_metrics": {}, "note": "C benchmark build failed"}\n'
@@ -127,10 +144,22 @@ name = "flashdb_bench"
 harness = false
 TOML_EOF
     fi
-    printf '{"c_metrics": %s, "rust_metrics": {}, "note": "Rust benchmarks stub generated (no real benchmarks)"}\n' "$C_METRICS"
+    if [ -n "$DIAG_NOTE" ]; then
+      printf '{"c_metrics": %s, "rust_metrics": {}, "note": "Rust benchmarks stub generated (no real benchmarks)", "c_bench_diag": "%s"}\n' "$C_METRICS" "$DIAG_NOTE"
+    else
+      printf '{"c_metrics": %s, "rust_metrics": {}, "note": "Rust benchmarks stub generated (no real benchmarks)"}\n' "$C_METRICS"
+    fi
   else
-    printf '{"c_metrics": %s, "rust_metrics": {}, "note": "no Rust benchmarks (benches/ not generated)"}\n' "$C_METRICS"
+    if [ -n "$DIAG_NOTE" ]; then
+      printf '{"c_metrics": %s, "rust_metrics": {}, "note": "no Rust benchmarks (benches/ not generated)", "c_bench_diag": "%s"}\n' "$C_METRICS" "$DIAG_NOTE"
+    else
+      printf '{"c_metrics": %s, "rust_metrics": {}, "note": "no Rust benchmarks (benches/ not generated)"}\n' "$C_METRICS"
+    fi
   fi
 else
-  printf '{"c_metrics": %s, "rust_metrics": %s}\n' "$C_METRICS" "$RUST_METRICS"
+  if [ -n "$DIAG_NOTE" ]; then
+    printf '{"c_metrics": %s, "rust_metrics": %s, "c_bench_diag": "%s"}\n' "$C_METRICS" "$RUST_METRICS" "$DIAG_NOTE"
+  else
+    printf '{"c_metrics": %s, "rust_metrics": %s}\n' "$C_METRICS" "$RUST_METRICS"
+  fi
 fi
