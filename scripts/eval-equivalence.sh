@@ -40,23 +40,28 @@ DRIVER_C="$FFI_DIR/compare_tests.c"
 # list) and check ffi.rs declares each as a #[no_mangle] extern "C" export.
 # ============================================================
 
-# Derive expected public function names from the C header: identifiers
-# declared in the public API prototypes. Extract tokens beginning with fdb_.
+# Derive expected public function names from the C header.
+# Only match function declarations (with '(' after name), excluding type
+# definitions like fdb_kv_t, fdb_err_t, etc.
 EXPECTED_FUNCS=""
 if [ -f "$C_API_H" ]; then
-  EXPECTED_FUNCS=$(grep -oE '\bfdb_[a-z0-9_]+' "$C_API_H" | sort -u)
+  EXPECTED_FUNCS=$(grep -oE '\bfdb_[a-z0-9_]+[[:space:]]*\(' "$C_API_H" \
+    | sed 's/[[:space:]]*($//' | sort -u)
 fi
 EXPECTED_COUNT=$(echo "$EXPECTED_FUNCS" | grep -c . || true)
 
-# From ffi.rs extract which #[no_mangle] extern "C" functions are exported,
-# keeping only the original C symbol names (fdb_*).
+# From ffi.rs extract which pub use exports are present.
+# Only match the actual function name (last fdb_* token before ';'),
+# excluding module names like fdb_kvdb, fdb_tsdb, etc.
 IMPLEMENTED_FUNCS=""
 if [ -f "$FFI_RS" ]; then
-  IMPLEMENTED_FUNCS=$(grep -oE '\bfdb_[a-z0-9_]+' "$FFI_RS" | sort -u)
+  IMPLEMENTED_FUNCS=$(grep 'pub use.*fdb_' "$FFI_RS" \
+    | sed 's/.*:://' | sed 's/;//' \
+    | grep -oE '\bfdb_[a-z0-9_]+' | sort -u)
 fi
 IMPLEMENTED_COUNT=$(echo "$IMPLEMENTED_FUNCS" | grep -c . || true)
 
-# Per-category expected/implemented counts, derived from the C header names.
+# Per-category expected/implemented counts, derived from function names only.
 CRC_EXPECTED=$(echo "$EXPECTED_FUNCS"    | grep -c "crc32" || true)
 CRC_IMPLEMENTED=$(echo "$IMPLEMENTED_FUNCS" | grep -c "crc32" || true)
 KV_EXPECTED=$(echo "$EXPECTED_FUNCS"    | grep -cE "kvdb|kv_" || true)
@@ -209,9 +214,10 @@ LC_ALL=C comm -13 /tmp/equiv-c-out.sorted /tmp/equiv-rust-out.sorted > /tmp/equi
 #    plus the summary line:
 #      PASSED: N  FAILED: N  TOTAL: N
 #
-#    The case_id is the 2nd whitespace-delimited token of a CASE line
-#    (e.g. "kv_set_get_string"); it carries the crc32/kv_/tsl_/ts_ prefix
-#    the legacy per-category greps rely on, so no scoring logic changes.
+#    The case_id is the 3rd whitespace-delimited token of a CASE line
+#    (e.g. "kv_set_get_string" from "CASE <category> kv_set_get_string PASS").
+#    Field 3 is the test_name which carries the crc32/kv_/tsl_/ts_ prefix
+#    the per-category greps rely on.
 # ============================================================
 
 TEST_OUTPUT=""
@@ -219,7 +225,7 @@ TEST_OUTPUT=""
 # matched lines -> PASS, labelled by case id
 while IFS= read -r line; do
   [ -z "$line" ] && continue
-  cid=$(printf '%s' "$line" | awk '{print $2}')
+  cid=$(printf '%s' "$line" | awk '{print $3}')
   [ -z "$cid" ] && continue
   TEST_OUTPUT="${TEST_OUTPUT}${cid} PASS"$'\n'
 done < /tmp/equiv-match.txt
@@ -227,7 +233,7 @@ done < /tmp/equiv-match.txt
 # C-only lines -> FAIL (Rust produced no such observation / different value)
 while IFS= read -r line; do
   [ -z "$line" ] && continue
-  cid=$(printf '%s' "$line" | awk '{print $2}')
+  cid=$(printf '%s' "$line" | awk '{print $3}')
   [ -z "$cid" ] && continue
   TEST_OUTPUT="${TEST_OUTPUT}${cid} FAIL"$'\n'
 done < /tmp/equiv-only-c.txt
@@ -235,7 +241,7 @@ done < /tmp/equiv-only-c.txt
 # Rust-only lines -> FAIL
 while IFS= read -r line; do
   [ -z "$line" ] && continue
-  cid=$(printf '%s' "$line" | awk '{print $2}')
+  cid=$(printf '%s' "$line" | awk '{print $3}')
   [ -z "$cid" ] && continue
   TEST_OUTPUT="${TEST_OUTPUT}${cid} FAIL"$'\n'
 done < /tmp/equiv-only-rust.txt
