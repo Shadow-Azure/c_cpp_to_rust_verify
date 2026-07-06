@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  SKILL_VERSION: v0.3.2
+  SKILL_VERSION: v0.4.0
 
 jobs:
   # ============================================================
@@ -246,6 +246,20 @@ jobs:
 
           # Stop the background export loop
           kill $EXPORT_PID 2>/dev/null || true
+
+      - name: Verify tests compile
+        run: |
+          cd rust-flashdb
+          cargo test --no-run 2>&1 | tee /tmp/test-compile.log
+
+      - name: Upload test-compile log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-compile-log
+          path: /tmp/test-compile.log
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Export opencode session
         if: always()
