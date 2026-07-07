@@ -16,7 +16,7 @@ jobs:
   convert:
     name: "Convert: FlashDB C → Rust"
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 150
+    timeout-minutes: 300
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
     container:
