@@ -260,20 +260,26 @@ def generate_report(
             lines.append(f"- C benchmark 诊断: {c_bench_diag}")
     else:
         lines.append(f"- 平均性能比: {avg_ratio}x (基准: ≤{max_r}x)")
+        # FlashDB is file-I/O bound, so a correct transpilation lands near 1.0x;
+        # the ratio mainly catches catastrophic regressions, not codegen finesse.
+        lines.append("- ℹ️ FlashDB 为文件 I/O 密集型，正确转换的比值通常接近 1.0x；该维度主要用于捕捉灾难性回归")
+        note = perf_result.get("note", "")
+        if note:
+            lines.append(f"- 备注: {note}")
         lines.append("")
-        lines.append("| 指标 | C 基线 (ns) | Rust (ns) | 比率 | 状态 |")
-        lines.append("|------|-------------|-----------|------|------|")
+        lines.append("| 指标 | C 基线 (µs/op) | Rust (µs/op) | 比率 | 状态 |")
+        lines.append("|------|----------------|--------------|------|------|")
 
         metric_labels = {
             "kvdb_set_string": "KVDB Set (String)",
             "kvdb_set_blob": "KVDB Set (Blob)",
             "kvdb_get_string": "KVDB Get (String)",
             "kvdb_get_blob": "KVDB Get (Blob)",
-            "kvdb_update": "KVDB Update",
-            "kvdb_iterate": "KVDB Iterate",
+            "kvdb_update_string": "KVDB Update",
+            "kvdb_iterate_all": "KVDB Iterate",
             "kvdb_delete": "KVDB Delete",
             "tsdb_append": "TSDB Append",
-            "tsdb_iterate": "TSDB Iterate",
+            "tsdb_iterate_all": "TSDB Iterate",
             "tsdb_iter_by_time": "TSDB Iter by Time",
             "tsdb_query_count": "TSDB Query Count",
         }

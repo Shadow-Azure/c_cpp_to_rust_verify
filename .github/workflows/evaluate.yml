@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  SKILL_VERSION: v0.4.0
+  SKILL_VERSION: v0.4.1
 
 jobs:
   # ============================================================
@@ -16,7 +16,7 @@ jobs:
   convert:
     name: "Convert: FlashDB C → Rust"
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 90
+    timeout-minutes: 300
     # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
     container:
@@ -261,38 +261,40 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Export opencode session
+      - name: Export opencode sessions
         if: always()
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
-          SESSION_ID=$(opencode session list --format json 2>/dev/null | python3 -c "
+          mkdir -p /tmp/opencode-sessions
+          SESSION_IDS=$(opencode session list --format json 2>/dev/null | python3 -c "
           import json, sys
           try:
               sessions = json.load(sys.stdin)
-              if sessions:
-                  print(sessions[0]['id'])
-              else:
-                  print('')
+              for s in sessions:
+                  print(s['id'])
           except:
-              print('')
+              pass
           " || echo "")
-          if [ -n "$SESSION_ID" ]; then
-            echo "Exporting session: $SESSION_ID"
-            opencode export "$SESSION_ID" > /tmp/opencode-session.json 2>&1 || echo "export failed"
+          if [ -n "$SESSION_IDS" ]; then
+            echo "Found sessions: $(echo "$SESSION_IDS" | wc -l)"
+            for SID in $SESSION_IDS; do
+              echo "Exporting session: $SID"
+              opencode export "$SID" > "/tmp/opencode-sessions/session-${SID}.json" 2>&1 || echo "export failed for $SID"
+            done
           else
-            echo "No session found to export"
-            echo '{"error": "no session found"}' > /tmp/opencode-session.json
+            echo "No sessions found to export"
+            echo '{"error": "no sessions found"}' > /tmp/opencode-sessions/no-sessions.json
           fi
 
-      - name: Upload opencode session
+      - name: Upload opencode sessions
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-session
-          path: /tmp/opencode-session.json
+          name: opencode-sessions
+          path: /tmp/opencode-sessions/
           retention-days: 30
 
       - name: Upload compile trajectory
@@ -329,6 +331,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload converted Rust code
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rust-flashdb
@@ -413,21 +416,27 @@ jobs:
           path: /tmp/convert-artifacts/
           if-no-files-found: ignore
 
-      - name: Download opencode session
+      - name: Download opencode sessions
         if: always()
         uses: actions/download-artifact@v4
         with:
-          name: opencode-session
-          path: /tmp/convert-artifacts/
+          name: opencode-sessions
+          path: /tmp/convert-artifacts/opencode-sessions/
           if-no-files-found: ignore
 
       - name: Analyze conversion process
         if: always()
         run: |
-          python3 scripts/analyze-session.py \
-            /tmp/convert-artifacts/opencode-session.json \
-            /tmp/convert-artifacts/compile-trajectory.jsonl \
-            >> /tmp/eval-report.md 2>/dev/null || true
+          # Find the main session file (first session in the list)
+          MAIN_SESSION=$(ls /tmp/convert-artifacts/opencode-sessions/session-*.json 2>/dev/null | head -1)
+          if [ -n "$MAIN_SESSION" ]; then
+            python3 scripts/analyze-session.py \
+              "$MAIN_SESSION" \
+              /tmp/convert-artifacts/compile-trajectory.jsonl \
+              >> /tmp/eval-report.md 2>/dev/null || true
+          else
+            echo "No session files found for analysis" >> /tmp/eval-report.md
+          fi
 
       # --- 输出报告 ---
       - name: "Report: Job Summary"

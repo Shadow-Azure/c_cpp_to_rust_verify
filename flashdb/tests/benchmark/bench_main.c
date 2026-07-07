@@ -272,6 +272,10 @@ int main(void)
     pthread_mutex_t kv_lock, ts_lock;
     pthread_mutexattr_t kv_attr, ts_attr;
 
+    /* Unbuffer stdout so output is never lost if the process is killed by a
+     * timeout while captured to a pipe/file. See scripts/eval-performance.sh. */
+    setvbuf(stdout, NULL, _IONBF, 0);
+
     cleanup();
     mkdir(KVDB_PATH, 0777);
     mkdir(TSDB_PATH, 0777);
