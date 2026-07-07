@@ -247,6 +247,20 @@ jobs:
           # Stop the background export loop
           kill $EXPORT_PID 2>/dev/null || true
 
+      - name: Verify tests compile
+        run: |
+          cd rust-flashdb
+          cargo test --no-run 2>&1 | tee /tmp/test-compile.log
+
+      - name: Upload test-compile log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-compile-log
+          path: /tmp/test-compile.log
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Export opencode sessions
         if: always()
         env:
