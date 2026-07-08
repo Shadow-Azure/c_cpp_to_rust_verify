@@ -18,15 +18,26 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 300
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang bear make gcc bc python3 curl wget jq
+
+      - name: Install opencode
+        run: |
+          # Install opencode from npm
+          npm install -g opencode-ai
+          opencode --version
+
       - name: Verify environment
         run: |
           opencode --version
           gh --version
           clang --version | head -1
           make --version | head -1
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Cache c-to-rust skill
         id: cache-skill
