@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  SKILL_VERSION: v0.4.1
+  SKILL_VERSION: v0.9.4
 
 jobs:
   # ============================================================
@@ -15,26 +15,30 @@ jobs:
   # ============================================================
   convert:
     name: "Convert: FlashDB C → Rust"
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-22.04
     timeout-minutes: 300
-    # 使用 Environment Secrets，只有审批通过后才会注入 API key
     environment: production
-    container:
-      image: crpi-asv0cbh8pj2ubw6j-vpc.cn-hangzhou.personal.cr.aliyuncs.com/shadow_azure/github:c2rust-runner-latest
-      options: --privileged
-      credentials:
-        username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
-        password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang bear make gcc bc python3 curl wget jq
+
+      - name: Install opencode
+        run: |
+          # Install opencode from npm
+          npm install -g opencode-ai
+          opencode --version
+
       - name: Verify environment
         run: |
           opencode --version
           gh --version
           clang --version | head -1
           make --version | head -1
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Cache c-to-rust skill
         id: cache-skill
@@ -168,9 +172,35 @@ jobs:
           : > /tmp/compile-trajectory.jsonl
           echo "compile trajectory initialized: /tmp/compile-trajectory.jsonl"
 
-      - name: Run OpenCode conversion
+      - name: Configure MiniMax provider
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+        run: |
+          # Create opencode.json with MiniMax provider configuration
+          cat > opencode.json <<'EOF'
+          {
+            "provider": {
+              "minimax": {
+                "npm": "@ai-sdk/openai-compatible",
+                "options": {
+                  "baseURL": "https://api.minimaxi.com/v1",
+                  "apiKey": "${MINIMAX_API_KEY}",
+                  "setCacheKey": true
+                },
+                "models": {
+                  "MiniMax-M2.7-highspeed": {
+                    "name": "MiniMax-M2.7-highspeed"
+                  }
+                }
+              }
+            }
+          }
+          EOF
+          # Replace placeholder with actual key
+          sed -i "s|\${MINIMAX_API_KEY}|${MINIMAX_API_KEY}|g" opencode.json
+          echo "✅ opencode.json created with MiniMax provider"
+
+      - name: Run OpenCode conversion
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
@@ -233,16 +263,15 @@ jobs:
           ) &
           EXPORT_PID=$!
 
-          # Run opencode with verbose logging so subagent activity is visible
-          # in CI output in real-time (--print-logs sends internal logs to stderr).
+          # Run opencode. Structured tool-call summaries are provided by the
+          # ci-logger plugin (.opencode/plugins/ci-logger.ts) instead of the
+          # noisy --print-logs flag.
           opencode run \
             --dangerously-skip-permissions \
-            --print-logs \
-            --log-level INFO \
-            --model "deepseek/deepseek-v4-pro" \
+            --model "minimax/MiniMax-M2.7-highspeed" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），跳过 Phase 1，不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。"
+            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），跳过 Phase 1，不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) Phase 4 translator refine 阶段，处理完 9 个函数后立即结束，跳过后续函数的处理。"
 
           # Stop the background export loop
           kill $EXPORT_PID 2>/dev/null || true
@@ -263,8 +292,6 @@ jobs:
 
       - name: Export opencode sessions
         if: always()
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
@@ -343,14 +370,9 @@ jobs:
   # ============================================================
   evaluate:
     name: "Evaluate: Compile + Test + Performance"
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     needs: convert
-    container:
-      image: crpi-asv0cbh8pj2ubw6j-vpc.cn-hangzhou.personal.cr.aliyuncs.com/shadow_azure/github:c2rust-runner-latest
-      credentials:
-        username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
-        password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
