@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  SKILL_VERSION: v0.10.3
+  SKILL_VERSION: v0.10.4
 
 jobs:
   # ============================================================
