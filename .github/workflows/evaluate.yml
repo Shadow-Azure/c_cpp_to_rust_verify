@@ -381,7 +381,7 @@ jobs:
   # ============================================================
   evaluate:
     name: "Evaluate: Compile + Test + Performance"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     needs: convert
     steps:
