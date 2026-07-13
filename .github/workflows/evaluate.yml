@@ -271,7 +271,7 @@ jobs:
             --model "minimax/MiniMax-M2.7-highspeed" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 4、Phase 5。"
+            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 4、Phase 5。Phase 4 在处理完 9 个函数后，无论成功还是失败，立即终止并进入 Phase 5。"
 
           # Stop the background export loop
           kill $EXPORT_PID 2>/dev/null || true
