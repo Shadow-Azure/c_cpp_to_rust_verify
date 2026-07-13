@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  SKILL_VERSION: v0.13.0
+  SKILL_VERSION: v0.13.1
 
 jobs:
   # ============================================================
@@ -275,6 +275,17 @@ jobs:
 
           # Stop the background export loop
           kill $EXPORT_PID 2>/dev/null || true
+
+      - name: Switch Rust to stable
+        run: |
+          if [ -f rust-flashdb/rust-toolchain.toml ]; then
+            cat > rust-flashdb/rust-toolchain.toml << 'EOF'
+          [toolchain]
+          channel = "stable"
+          EOF
+            echo "✅ Switched Rust to stable"
+          fi
+          cd rust-flashdb && rustup show active-toolchain
 
       - name: Verify tests compile
         run: |
