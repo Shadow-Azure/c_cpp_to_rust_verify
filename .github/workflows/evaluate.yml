@@ -15,7 +15,7 @@ jobs:
   # ============================================================
   convert:
     name: "Convert: FlashDB C → Rust"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     environment: production
     steps:
