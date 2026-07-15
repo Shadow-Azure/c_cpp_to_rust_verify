@@ -93,25 +93,38 @@ def session_cost_summary(session: dict) -> dict:
 
 
 def run_export(opencode_bin: str, sid: str, out_path: str) -> bool:
-    """调用 `opencode export <sid>`，把 stdout 写入 out_path。返回是否拿到 JSON。"""
+    """
+    调用 `opencode export <sid>`，把 JSON 写入 out_path。返回是否拿到有效 JSON。
+
+    注意：不使用 capture_output=True（Python subprocess 的 stdout 管道在 Linux 上
+    默认只有 64KB 缓冲区，session JSON 可能远大于此）。改用文件描述符直写，
+    与旧版 evaluate.yml 的 shell 重定向 `opencode export $SID > file` 等效。
+    """
     try:
-        result = subprocess.run(
-            [opencode_bin, 'export', sid],
-            capture_output=True, text=True, timeout=180,
-        )
+        with open(out_path, 'w') as f:
+            result = subprocess.run(
+                [opencode_bin, 'export', sid],
+                stdout=f, stderr=subprocess.PIPE, text=True, timeout=180,
+            )
     except subprocess.TimeoutExpired:
         print(f"  ⚠️ export {sid} 超时", file=sys.stderr)
         return False
     except (FileNotFoundError, OSError) as e:
         print(f"  ⚠️ export {sid} 错误: {e}", file=sys.stderr)
         return False
-    # opencode 把 "Exporting session: ..." 写到 stderr，JSON 写到 stdout；
-    # 保险起见仍跳过可能的前缀。
-    if result.returncode != 0 or '{' not in result.stdout:
+    # opencode 把 "Exporting session: ..." 写到 stderr，JSON 写到 stdout（文件）。
+    # 检查文件是否包含有效 JSON（跳过可能的前缀）。
+    if result.returncode != 0:
         print(f"  ⚠️ export {sid} 失败 (exit {result.returncode}): {result.stderr[:200]}", file=sys.stderr)
         return False
-    with open(out_path, 'w') as f:
-        f.write(result.stdout)
+    try:
+        with open(out_path) as f:
+            head = f.read(256)
+        if '{' not in head:
+            print(f"  ⚠️ export {sid} 输出无 JSON", file=sys.stderr)
+            return False
+    except OSError:
+        return False
     return True
 
 
