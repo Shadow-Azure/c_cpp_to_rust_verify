@@ -6,89 +6,201 @@ on:
 permissions:
   contents: read
 
+# Purpose: determine whether OpenCode subagent (task tool) sessions are
+# exportable. Three possible outcomes, answered by the final summary:
+#   A) subagent ID appears in `opencode session list` and export works
+#      → fully capturable; pipeline just needs to export + analyze all sessions
+#   B) subagent ID NOT in list, but `opencode export <id>` still works
+#      → capturable via ID harvesting from the main session's task outputs
+#   C) export-by-ID fails (error / 0 messages)
+#      → NOT capturable in this OpenCode version; fall back to embedded summaries
+
 jobs:
   debug-session:
-    name: Debug opencode session export
+    name: Debug subagent session export
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: production
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install OpenCode
+      - name: Install system dependencies
         run: |
-          curl -fsSL https://opencode.ai/install | bash
-          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+          sudo apt-get update
+          sudo apt-get install -y python3 jq
 
-      - name: Run opencode and capture session
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      - name: Install opencode
         run: |
-          # Step 1: Run a simple prompt to create a session
-          echo "=== Step 1: opencode run ==="
+          npm install -g opencode-ai
+          opencode --version
+
+      - name: Configure MiniMax provider
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+        run: |
+          cat > opencode.json <<'EOF'
+          {
+            "provider": {
+              "minimax": {
+                "npm": "@ai-sdk/openai-compatible",
+                "options": {
+                  "baseURL": "https://api.minimaxi.com/v1",
+                  "apiKey": "${MINIMAX_API_KEY}",
+                  "setCacheKey": true
+                },
+                "models": {
+                  "MiniMax-M2.7-highspeed": {
+                    "name": "MiniMax-M2.7-highspeed"
+                  }
+                }
+              }
+            }
+          }
+          EOF
+          sed -i "s|\${MINIMAX_API_KEY}|${MINIMAX_API_KEY}|g" opencode.json
+          echo "✅ opencode.json created with MiniMax provider"
+
+      - name: Create probe-worker subagent definition
+        run: |
+          mkdir -p .opencode/agents
+          cat > .opencode/agents/probe-worker.md <<'EOF'
+          ---
+          name: probe-worker
+          description: A trivial probe subagent. Writes a marker file and returns a fixed string. Used to test whether subagent sessions are exportable.
+          mode: subagent
+          permission:
+            read: allow
+            write: allow
+            edit: allow
+            bash: allow
+          ---
+          You are a probe subagent used to verify session-export behavior. Do EXACTLY this and nothing else:
+
+          1. Run the bash command: `echo subagent-was-here > /tmp/subagent-marker.txt`
+          2. Reply with exactly this text and nothing else: PROBE_WORKER_DONE
+          EOF
+          echo "✅ probe-worker agent created:"
+          ls -la .opencode/agents/
+
+      - name: Run opencode (dispatch one subagent via task tool)
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+        run: |
+          set +e
           opencode run \
             --dangerously-skip-permissions \
-            --model "deepseek/deepseek-v4-flash" \
-            "回复 hello" \
-            2>&1 | tee /tmp/opencode-run-output.txt
-          echo "=== opencode run exit code: $? ==="
+            --model "minimax/MiniMax-M2.7-highspeed" \
+            --agent build \
+            --title "Subagent session export probe" \
+            "Use the task tool to delegate to a subagent of type 'probe-worker'. In the task prompt, tell the subagent to do its job. Wait for the subagent to finish, then reply with the single word DONE. Do not do anything else." \
+            2>&1 | tee /tmp/run-output.txt
+          echo "=== opencode run exit code: ${PIPESTATUS[0]} ==="
 
-          # Step 2: List sessions
           echo ""
-          echo "=== Step 2: opencode session list ==="
-          opencode session list 2>&1 | tee /tmp/session-list.txt
-          echo ""
-
-          echo "=== Step 2b: opencode session list --format json ==="
-          opencode session list --format json 2>&1 | tee /tmp/session-list-json.txt
-          echo ""
-
-          # Step 3: Get session ID
-          SESSION_ID=$(opencode session list --format json 2>&1 | python3 -c "
-          import json, sys
-          try:
-              data = sys.stdin.read()
-              print(f'Raw input: {data[:500]}', file=sys.stderr)
-              sessions = json.loads(data)
-              if sessions:
-                  print(sessions[0]['id'])
-              else:
-                  print('')
-          except Exception as e:
-              print(f'Parse error: {e}', file=sys.stderr)
-              print('')
-          " 2>&1 | tee /tmp/session-id-debug.txt)
-          echo "SESSION_ID=$SESSION_ID"
-
-          # Step 4: Try export with different flags
-          if [ -n "$SESSION_ID" ]; then
-            echo ""
-            echo "=== Step 4a: opencode export $SESSION_ID ==="
-            opencode export "$SESSION_ID" 2>&1 | tee /tmp/export-default.txt
-            echo "=== exit code: $? ==="
-
-            echo ""
-            echo "=== Step 4b: opencode export $SESSION_ID --format json ==="
-            opencode export "$SESSION_ID" --format json 2>&1 | tee /tmp/export-json.txt
-            echo "=== exit code: $? ==="
-
-            echo ""
-            echo "=== Step 4c: opencode export --help ==="
-            opencode export --help 2>&1 | tee /tmp/export-help.txt
+          echo "=== Marker file check ==="
+          if [ -f /tmp/subagent-marker.txt ]; then
+            echo "✅ /tmp/subagent-marker.txt EXISTS — subagent definitely ran"
+            cat /tmp/subagent-marker.txt
           else
-            echo "No session ID found, skipping export"
+            echo "⚠️ /tmp/subagent-marker.txt MISSING — subagent may NOT have run (experiment inconclusive)"
           fi
 
-          # Step 5: Check file sizes
+      - name: Probe subagent session export
+        run: |
+          set +e
+          mkdir -p /tmp/debug
+
+          # 1. Full session list
+          echo "=== 1. opencode session list ==="
+          opencode session list --format json 2>/dev/null > /tmp/debug/session-list.json || echo "session list failed" >&2
+
+          python3 - <<'PY' > /tmp/debug/list-ids.txt
+          import json
+          try:
+              data = json.load(open('/tmp/debug/session-list.json'))
+              for s in data:
+                  print(s.get('id', ''))
+          except Exception as e:
+              import sys
+              print(f"parse error: {e}", file=sys.stderr)
+          PY
+
+          LIST_COUNT=$(wc -l < /tmp/debug/list-ids.txt | tr -d ' ')
+          echo "sessions listed: $LIST_COUNT"
+          echo "listed IDs:"; cat /tmp/debug/list-ids.txt
+
+          # 2. Export MAIN session (first in list)
+          MAIN_ID=$(head -1 /tmp/debug/list-ids.txt)
           echo ""
-          echo "=== Step 5: File sizes ==="
-          ls -la /tmp/export-*.txt /tmp/opencode-run-output.txt /tmp/session-list*.txt /tmp/session-id-debug.txt 2>/dev/null
+          echo "=== 2. Export main session: $MAIN_ID ==="
+          if [ -n "$MAIN_ID" ]; then
+            opencode export "$MAIN_ID" > /tmp/debug/main-session.json 2>&1 || echo "main export failed"
+            echo "main session bytes: $(wc -c < /tmp/debug/main-session.json | tr -d ' ')"
+
+            # 3. Harvest subagent IDs from <task id="ses_...">
+            grep -oE '<task id="ses_[A-Za-z0-9]+"' /tmp/debug/main-session.json \
+              | grep -oE 'ses_[A-Za-z0-9]+' | sort -u > /tmp/debug/subagent-ids.txt || true
+            echo ""
+            echo "=== 3. Subagent IDs harvested from main session task outputs ==="
+            if [ -s /tmp/debug/subagent-ids.txt ]; then
+              cat /tmp/debug/subagent-ids.txt
+            else
+              echo "(none found — subagent may not have been dispatched, or output shape differs)"
+              # Fallback: any ses_ id mentioned anywhere in the main session
+              grep -oE 'ses_[A-Za-z0-9]+' /tmp/debug/main-session.json | sort -u > /tmp/debug/subagent-ids.txt || true
+              echo "fallback (all ses_ ids in main session):"; cat /tmp/debug/subagent-ids.txt
+            fi
+          else
+            echo "no main session id found"
+          fi
+
+          # 4. Probe each subagent ID
+          echo ""
+          echo "=== 4. Probe each subagent ID ==="
+          : > /tmp/debug/probe-results.txt
+          while read SID; do
+            [ -z "$SID" ] && continue
+            if grep -qxF "$SID" /tmp/debug/list-ids.txt; then IN_LIST=YES; else IN_LIST=NO; fi
+            opencode export "$SID" > "/tmp/debug/sub-export-${SID}.json" 2>"/tmp/debug/sub-export-${SID}.err"
+            EC=$?
+            SIZE=$(wc -c < "/tmp/debug/sub-export-${SID}.json" 2>/dev/null | tr -d ' ' || echo 0)
+            MSGS=$(grep -cE '"role"' "/tmp/debug/sub-export-${SID}.json" 2>/dev/null || echo 0)
+            ERR1=$(head -1 "/tmp/debug/sub-export-${SID}.err" 2>/dev/null || echo "")
+            LINE="subagent $SID | in_list=$IN_LIST | export_exit=$EC | bytes=$SIZE | msg_count=$MSGS"
+            echo "$LINE"
+            echo "$LINE" >> /tmp/debug/probe-results.txt
+            echo "  err: $ERR1" >> /tmp/debug/probe-results.txt
+          done < /tmp/debug/subagent-ids.txt
+
+          if [ ! -s /tmp/debug/probe-results.txt ]; then
+            echo "no subagent IDs to probe" >> /tmp/debug/probe-results.txt
+          fi
+
+          # 5. Write final summary to job summary + artifact
+          echo "" > /tmp/debug/summary.txt
+          echo "## Subagent session-export probe" >> /tmp/debug/summary.txt
+          echo "" >> /tmp/debug/summary.txt
+          echo "**sessions in \`session list\`:** $LIST_COUNT" >> /tmp/debug/summary.txt
+          echo "**main session:** \`$MAIN_ID\`" >> /tmp/debug/summary.txt
+          echo "" >> /tmp/debug/summary.txt
+          echo "### Probe results" >> /tmp/debug/summary.txt
+          echo "" >> /tmp/debug/summary.txt
+          echo '```' >> /tmp/debug/summary.txt
+          cat /tmp/debug/probe-results.txt >> /tmp/debug/summary.txt
+          echo '```' >> /tmp/debug/summary.txt
+          echo "" >> /tmp/debug/summary.txt
+          echo "marker file exists: $([ -f /tmp/subagent-marker.txt ] && echo yes || echo no)" >> /tmp/debug/summary.txt
+
+          cat /tmp/debug/summary.txt >> "$GITHUB_STEP_SUMMARY"
+          echo ""
+          echo "================ FINAL SUMMARY ================"
+          cat /tmp/debug/summary.txt
 
       - name: Upload debug artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-session
-          path: /tmp/*.txt
+          name: debug-subagent-probe
+          path: /tmp/debug/
           retention-days: 7
