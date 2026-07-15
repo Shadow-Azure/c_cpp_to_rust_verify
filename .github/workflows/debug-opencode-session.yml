@@ -6,89 +6,146 @@ on:
 permissions:
   contents: read
 
+# Purpose: end-to-end verify that export-all-sessions.py + analyze-session.py
+# correctly capture a task-spawned subagent session. Dispatches one subagent,
+# then runs the real export + analyze scripts and checks the subagent was
+# captured in the manifest and report.
+
 jobs:
   debug-session:
-    name: Debug opencode session export
+    name: Verify subagent capture (export + analyze)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: production
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install OpenCode
+      - name: Install system dependencies
         run: |
-          curl -fsSL https://opencode.ai/install | bash
-          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+          sudo apt-get update
+          sudo apt-get install -y python3 jq
 
-      - name: Run opencode and capture session
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      - name: Install opencode
         run: |
-          # Step 1: Run a simple prompt to create a session
-          echo "=== Step 1: opencode run ==="
+          npm install -g opencode-ai
+          opencode --version
+
+      - name: Configure MiniMax provider
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+        run: |
+          cat > opencode.json <<'EOF'
+          {
+            "provider": {
+              "minimax": {
+                "npm": "@ai-sdk/openai-compatible",
+                "options": {
+                  "baseURL": "https://api.minimaxi.com/v1",
+                  "apiKey": "${MINIMAX_API_KEY}",
+                  "setCacheKey": true
+                },
+                "models": {
+                  "MiniMax-M2.7-highspeed": {
+                    "name": "MiniMax-M2.7-highspeed"
+                  }
+                }
+              }
+            }
+          }
+          EOF
+          sed -i "s|\${MINIMAX_API_KEY}|${MINIMAX_API_KEY}|g" opencode.json
+          echo "✅ opencode.json created with MiniMax provider"
+
+      - name: Create probe-worker subagent definition
+        run: |
+          mkdir -p .opencode/agents
+          cat > .opencode/agents/probe-worker.md <<'EOF'
+          ---
+          name: probe-worker
+          description: A trivial probe subagent used to verify session-export behavior.
+          mode: subagent
+          permission:
+            read: allow
+            write: allow
+            edit: allow
+            bash: allow
+          ---
+          You are a probe subagent. Do EXACTLY this and nothing else:
+          1. Run the bash command: `echo subagent-was-here > /tmp/subagent-marker.txt`
+          2. Reply with exactly this text and nothing else: PROBE_WORKER_DONE
+          EOF
+          echo "✅ probe-worker agent created"
+
+      - name: Run opencode (dispatch one subagent via task tool)
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+        run: |
+          set +e
           opencode run \
             --dangerously-skip-permissions \
-            --model "deepseek/deepseek-v4-flash" \
-            "回复 hello" \
-            2>&1 | tee /tmp/opencode-run-output.txt
-          echo "=== opencode run exit code: $? ==="
+            --model "minimax/MiniMax-M2.7-highspeed" \
+            --agent build \
+            --title "Subagent capture verify" \
+            "Use the task tool to delegate to a subagent of type 'probe-worker'. In the task prompt, tell the subagent to do its job. Wait for the subagent to finish, then reply with the single word DONE. Do not do anything else." \
+            2>&1 | tee /tmp/run-output.txt
+          echo "=== opencode run exit code: ${PIPESTATUS[0]} ==="
+          echo "marker exists: $([ -f /tmp/subagent-marker.txt ] && echo yes || echo no)"
 
-          # Step 2: List sessions
+      - name: Run export-all-sessions.py (the real export script)
+        run: |
+          mkdir -p /tmp/verify-sessions
+          python3 scripts/export-all-sessions.py /tmp/verify-sessions
           echo ""
-          echo "=== Step 2: opencode session list ==="
-          opencode session list 2>&1 | tee /tmp/session-list.txt
+          echo "=== manifest.json ==="
+          cat /tmp/verify-sessions/manifest.json
           echo ""
+          echo "=== files produced ==="
+          ls -la /tmp/verify-sessions/
 
-          echo "=== Step 2b: opencode session list --format json ==="
-          opencode session list --format json 2>&1 | tee /tmp/session-list-json.txt
-          echo ""
-
-          # Step 3: Get session ID
-          SESSION_ID=$(opencode session list --format json 2>&1 | python3 -c "
-          import json, sys
-          try:
-              data = sys.stdin.read()
-              print(f'Raw input: {data[:500]}', file=sys.stderr)
-              sessions = json.loads(data)
-              if sessions:
-                  print(sessions[0]['id'])
-              else:
-                  print('')
-          except Exception as e:
-              print(f'Parse error: {e}', file=sys.stderr)
-              print('')
-          " 2>&1 | tee /tmp/session-id-debug.txt)
-          echo "SESSION_ID=$SESSION_ID"
-
-          # Step 4: Try export with different flags
-          if [ -n "$SESSION_ID" ]; then
+      - name: Verify subagent was captured + run analyze-session.py
+        run: |
+          set +e
+          # Count subagent entries in manifest
+          SUB_COUNT=$(python3 -c "
+          import json
+          m=json.load(open('/tmp/verify-sessions/manifest.json'))
+          print(sum(1 for x in m if x.get('role')=='subagent'))
+          ")
+          MAIN_COUNT=$(python3 -c "
+          import json
+          m=json.load(open('/tmp/verify-sessions/manifest.json'))
+          print(sum(1 for x in m if x.get('role')=='main'))
+          ")
+          echo "manifest: $MAIN_COUNT main, $SUB_COUNT subagent"
+          {
+            echo "## Subagent capture verification"
             echo ""
-            echo "=== Step 4a: opencode export $SESSION_ID ==="
-            opencode export "$SESSION_ID" 2>&1 | tee /tmp/export-default.txt
-            echo "=== exit code: $? ==="
-
+            echo "- main sessions in manifest: **$MAIN_COUNT**"
+            echo "- subagent sessions captured: **$SUB_COUNT**"
             echo ""
-            echo "=== Step 4b: opencode export $SESSION_ID --format json ==="
-            opencode export "$SESSION_ID" --format json 2>&1 | tee /tmp/export-json.txt
-            echo "=== exit code: $? ==="
+          } >> "$GITHUB_STEP_SUMMARY"
 
-            echo ""
-            echo "=== Step 4c: opencode export --help ==="
-            opencode export --help 2>&1 | tee /tmp/export-help.txt
+          if [ "$SUB_COUNT" -ge 1 ]; then
+            echo "✅ PASS: subagent session was captured by export-all-sessions.py"
+            echo "✅ PASS" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No session ID found, skipping export"
+            echo "⚠️ NO subagent captured — subagent may not have been dispatched"
+            echo "⚠️ check run output" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # Step 5: Check file sizes
           echo ""
-          echo "=== Step 5: File sizes ==="
-          ls -la /tmp/export-*.txt /tmp/opencode-run-output.txt /tmp/session-list*.txt /tmp/session-id-debug.txt 2>/dev/null
+          echo "=== analyze-session.py report (real script) ==="
+          python3 scripts/analyze-session.py /tmp/verify-sessions /dev/null | tee /tmp/verify-report.md
+          cat /tmp/verify-report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload debug artifacts
+      - name: Upload verification artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-session
-          path: /tmp/*.txt
+          name: debug-subagent-verify
+          path: |
+            /tmp/verify-sessions/
+            /tmp/verify-report.md
+            /tmp/run-output.txt
           retention-days: 7

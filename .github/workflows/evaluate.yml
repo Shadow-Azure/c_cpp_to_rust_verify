@@ -301,31 +301,19 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Export opencode sessions
+      - name: Export opencode sessions (main + subagents)
+        # Exports the top-level session AND every task-spawned subagent session.
+        # subagent sessions don't appear in `opencode session list`, so
+        # export-all-sessions.py harvests their IDs from the main session's
+        # task-tool outputs (<task id="ses_...">) and exports each by ID.
+        # Writes session-*.json + manifest.json into /tmp/opencode-sessions/.
         if: always()
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
           mkdir -p /tmp/opencode-sessions
-          SESSION_IDS=$(opencode session list --format json 2>/dev/null | python3 -c "
-          import json, sys
-          try:
-              sessions = json.load(sys.stdin)
-              for s in sessions:
-                  print(s['id'])
-          except:
-              pass
-          " || echo "")
-          if [ -n "$SESSION_IDS" ]; then
-            echo "Found sessions: $(echo "$SESSION_IDS" | wc -l)"
-            for SID in $SESSION_IDS; do
-              echo "Exporting session: $SID"
-              opencode export "$SID" > "/tmp/opencode-sessions/session-${SID}.json" 2>&1 || echo "export failed for $SID"
-            done
-          else
-            echo "No sessions found to export"
-            echo '{"error": "no sessions found"}' > /tmp/opencode-sessions/no-sessions.json
-          fi
+          python3 scripts/export-all-sessions.py /tmp/opencode-sessions \
+            || echo "⚠️ export-all-sessions.py failed (non-fatal)"
 
       - name: Upload opencode sessions
         if: always()
@@ -458,13 +446,14 @@ jobs:
           if-no-files-found: ignore
 
       - name: Analyze conversion process
+        # Analyze ALL sessions (main + subagents) via manifest.json, aggregating
+        # cost/tokens/tool stats across them. Pass the sessions directory.
         if: always()
         run: |
-          # Find the main session file (first session in the list)
-          MAIN_SESSION=$(ls /tmp/convert-artifacts/opencode-sessions/session-*.json 2>/dev/null | head -1)
-          if [ -n "$MAIN_SESSION" ]; then
+          SESSIONS_DIR=/tmp/convert-artifacts/opencode-sessions
+          if [ -d "$SESSIONS_DIR" ] && ls "$SESSIONS_DIR"/session-*.json >/dev/null 2>&1; then
             python3 scripts/analyze-session.py \
-              "$MAIN_SESSION" \
+              "$SESSIONS_DIR" \
               /tmp/convert-artifacts/compile-trajectory.jsonl \
               >> /tmp/eval-report.md 2>/dev/null || true
           else
