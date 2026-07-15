@@ -6,18 +6,14 @@ on:
 permissions:
   contents: read
 
-# Purpose: determine whether OpenCode subagent (task tool) sessions are
-# exportable. Three possible outcomes, answered by the final summary:
-#   A) subagent ID appears in `opencode session list` and export works
-#      → fully capturable; pipeline just needs to export + analyze all sessions
-#   B) subagent ID NOT in list, but `opencode export <id>` still works
-#      → capturable via ID harvesting from the main session's task outputs
-#   C) export-by-ID fails (error / 0 messages)
-#      → NOT capturable in this OpenCode version; fall back to embedded summaries
+# Purpose: end-to-end verify that export-all-sessions.py + analyze-session.py
+# correctly capture a task-spawned subagent session. Dispatches one subagent,
+# then runs the real export + analyze scripts and checks the subagent was
+# captured in the manifest and report.
 
 jobs:
   debug-session:
-    name: Debug subagent session export
+    name: Verify subagent capture (export + analyze)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: production
@@ -67,7 +63,7 @@ jobs:
           cat > .opencode/agents/probe-worker.md <<'EOF'
           ---
           name: probe-worker
-          description: A trivial probe subagent. Writes a marker file and returns a fixed string. Used to test whether subagent sessions are exportable.
+          description: A trivial probe subagent used to verify session-export behavior.
           mode: subagent
           permission:
             read: allow
@@ -75,13 +71,11 @@ jobs:
             edit: allow
             bash: allow
           ---
-          You are a probe subagent used to verify session-export behavior. Do EXACTLY this and nothing else:
-
+          You are a probe subagent. Do EXACTLY this and nothing else:
           1. Run the bash command: `echo subagent-was-here > /tmp/subagent-marker.txt`
           2. Reply with exactly this text and nothing else: PROBE_WORKER_DONE
           EOF
-          echo "✅ probe-worker agent created:"
-          ls -la .opencode/agents/
+          echo "✅ probe-worker agent created"
 
       - name: Run opencode (dispatch one subagent via task tool)
         env:
@@ -92,115 +86,66 @@ jobs:
             --dangerously-skip-permissions \
             --model "minimax/MiniMax-M2.7-highspeed" \
             --agent build \
-            --title "Subagent session export probe" \
+            --title "Subagent capture verify" \
             "Use the task tool to delegate to a subagent of type 'probe-worker'. In the task prompt, tell the subagent to do its job. Wait for the subagent to finish, then reply with the single word DONE. Do not do anything else." \
             2>&1 | tee /tmp/run-output.txt
           echo "=== opencode run exit code: ${PIPESTATUS[0]} ==="
+          echo "marker exists: $([ -f /tmp/subagent-marker.txt ] && echo yes || echo no)"
 
+      - name: Run export-all-sessions.py (the real export script)
+        run: |
+          mkdir -p /tmp/verify-sessions
+          python3 scripts/export-all-sessions.py /tmp/verify-sessions
           echo ""
-          echo "=== Marker file check ==="
-          if [ -f /tmp/subagent-marker.txt ]; then
-            echo "✅ /tmp/subagent-marker.txt EXISTS — subagent definitely ran"
-            cat /tmp/subagent-marker.txt
-          else
-            echo "⚠️ /tmp/subagent-marker.txt MISSING — subagent may NOT have run (experiment inconclusive)"
-          fi
+          echo "=== manifest.json ==="
+          cat /tmp/verify-sessions/manifest.json
+          echo ""
+          echo "=== files produced ==="
+          ls -la /tmp/verify-sessions/
 
-      - name: Probe subagent session export
+      - name: Verify subagent was captured + run analyze-session.py
         run: |
           set +e
-          mkdir -p /tmp/debug
-
-          # 1. Full session list
-          echo "=== 1. opencode session list ==="
-          opencode session list --format json 2>/dev/null > /tmp/debug/session-list.json || echo "session list failed" >&2
-
-          python3 - <<'PY' > /tmp/debug/list-ids.txt
+          # Count subagent entries in manifest
+          SUB_COUNT=$(python3 -c "
           import json
-          try:
-              data = json.load(open('/tmp/debug/session-list.json'))
-              for s in data:
-                  print(s.get('id', ''))
-          except Exception as e:
-              import sys
-              print(f"parse error: {e}", file=sys.stderr)
-          PY
-
-          LIST_COUNT=$(wc -l < /tmp/debug/list-ids.txt | tr -d ' ')
-          echo "sessions listed: $LIST_COUNT"
-          echo "listed IDs:"; cat /tmp/debug/list-ids.txt
-
-          # 2. Export MAIN session (first in list)
-          MAIN_ID=$(head -1 /tmp/debug/list-ids.txt)
-          echo ""
-          echo "=== 2. Export main session: $MAIN_ID ==="
-          if [ -n "$MAIN_ID" ]; then
-            opencode export "$MAIN_ID" > /tmp/debug/main-session.json 2>&1 || echo "main export failed"
-            echo "main session bytes: $(wc -c < /tmp/debug/main-session.json | tr -d ' ')"
-
-            # 3. Harvest subagent IDs from <task id="ses_...">
-            grep -oE '<task id="ses_[A-Za-z0-9]+"' /tmp/debug/main-session.json \
-              | grep -oE 'ses_[A-Za-z0-9]+' | sort -u > /tmp/debug/subagent-ids.txt || true
+          m=json.load(open('/tmp/verify-sessions/manifest.json'))
+          print(sum(1 for x in m if x.get('role')=='subagent'))
+          ")
+          MAIN_COUNT=$(python3 -c "
+          import json
+          m=json.load(open('/tmp/verify-sessions/manifest.json'))
+          print(sum(1 for x in m if x.get('role')=='main'))
+          ")
+          echo "manifest: $MAIN_COUNT main, $SUB_COUNT subagent"
+          {
+            echo "## Subagent capture verification"
             echo ""
-            echo "=== 3. Subagent IDs harvested from main session task outputs ==="
-            if [ -s /tmp/debug/subagent-ids.txt ]; then
-              cat /tmp/debug/subagent-ids.txt
-            else
-              echo "(none found — subagent may not have been dispatched, or output shape differs)"
-              # Fallback: any ses_ id mentioned anywhere in the main session
-              grep -oE 'ses_[A-Za-z0-9]+' /tmp/debug/main-session.json | sort -u > /tmp/debug/subagent-ids.txt || true
-              echo "fallback (all ses_ ids in main session):"; cat /tmp/debug/subagent-ids.txt
-            fi
+            echo "- main sessions in manifest: **$MAIN_COUNT**"
+            echo "- subagent sessions captured: **$SUB_COUNT**"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$SUB_COUNT" -ge 1 ]; then
+            echo "✅ PASS: subagent session was captured by export-all-sessions.py"
+            echo "✅ PASS" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "no main session id found"
+            echo "⚠️ NO subagent captured — subagent may not have been dispatched"
+            echo "⚠️ check run output" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # 4. Probe each subagent ID
           echo ""
-          echo "=== 4. Probe each subagent ID ==="
-          : > /tmp/debug/probe-results.txt
-          while read SID; do
-            [ -z "$SID" ] && continue
-            if grep -qxF "$SID" /tmp/debug/list-ids.txt; then IN_LIST=YES; else IN_LIST=NO; fi
-            opencode export "$SID" > "/tmp/debug/sub-export-${SID}.json" 2>"/tmp/debug/sub-export-${SID}.err"
-            EC=$?
-            SIZE=$(wc -c < "/tmp/debug/sub-export-${SID}.json" 2>/dev/null | tr -d ' ' || echo 0)
-            MSGS=$(grep -cE '"role"' "/tmp/debug/sub-export-${SID}.json" 2>/dev/null || echo 0)
-            ERR1=$(head -1 "/tmp/debug/sub-export-${SID}.err" 2>/dev/null || echo "")
-            LINE="subagent $SID | in_list=$IN_LIST | export_exit=$EC | bytes=$SIZE | msg_count=$MSGS"
-            echo "$LINE"
-            echo "$LINE" >> /tmp/debug/probe-results.txt
-            echo "  err: $ERR1" >> /tmp/debug/probe-results.txt
-          done < /tmp/debug/subagent-ids.txt
+          echo "=== analyze-session.py report (real script) ==="
+          python3 scripts/analyze-session.py /tmp/verify-sessions /dev/null | tee /tmp/verify-report.md
+          cat /tmp/verify-report.md >> "$GITHUB_STEP_SUMMARY"
 
-          if [ ! -s /tmp/debug/probe-results.txt ]; then
-            echo "no subagent IDs to probe" >> /tmp/debug/probe-results.txt
-          fi
-
-          # 5. Write final summary to job summary + artifact
-          echo "" > /tmp/debug/summary.txt
-          echo "## Subagent session-export probe" >> /tmp/debug/summary.txt
-          echo "" >> /tmp/debug/summary.txt
-          echo "**sessions in \`session list\`:** $LIST_COUNT" >> /tmp/debug/summary.txt
-          echo "**main session:** \`$MAIN_ID\`" >> /tmp/debug/summary.txt
-          echo "" >> /tmp/debug/summary.txt
-          echo "### Probe results" >> /tmp/debug/summary.txt
-          echo "" >> /tmp/debug/summary.txt
-          echo '```' >> /tmp/debug/summary.txt
-          cat /tmp/debug/probe-results.txt >> /tmp/debug/summary.txt
-          echo '```' >> /tmp/debug/summary.txt
-          echo "" >> /tmp/debug/summary.txt
-          echo "marker file exists: $([ -f /tmp/subagent-marker.txt ] && echo yes || echo no)" >> /tmp/debug/summary.txt
-
-          cat /tmp/debug/summary.txt >> "$GITHUB_STEP_SUMMARY"
-          echo ""
-          echo "================ FINAL SUMMARY ================"
-          cat /tmp/debug/summary.txt
-
-      - name: Upload debug artifacts
+      - name: Upload verification artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-subagent-probe
-          path: /tmp/debug/
+          name: debug-subagent-verify
+          path: |
+            /tmp/verify-sessions/
+            /tmp/verify-report.md
+            /tmp/run-output.txt
           retention-days: 7
