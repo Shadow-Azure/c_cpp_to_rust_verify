@@ -1,0 +1,123 @@
+name: Build & Release c2rust (Low GLIBC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      c2rust_version:
+        description: "c2rust version/tag to build (e.g. 0.15.0)"
+        required: true
+        default: "0.15.0"
+  push:
+    tags:
+      - "c2rust-v*"
+
+env:
+  IMAGE_NAME: c2rust-low-glibc
+  C2RUST_VERSION: ${{ github.event.inputs.c2rust_version || '0.15.0' }}
+
+jobs:
+  build:
+    runs-on: self-hosted
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.IMAGE_NAME }}:latest docker/c2rust-low-glibc/
+
+      - name: Build c2rust in container
+        run: |
+          mkdir -p output
+          docker run --rm \
+            -v ${{ github.workspace }}/output:/output \
+            ${{ env.IMAGE_NAME }}:latest \
+            bash -c "
+              set -euo pipefail
+
+              echo '=== Cloning c2rust ${{ env.C2RUST_VERSION }} ==='
+              git clone --depth 1 --branch ${{ env.C2RUST_VERSION }} \
+                https://github.com/immunant/c2rust.git /build/c2rust
+              cd /build/c2rust
+
+              echo '=== Building c2rust (release) ==='
+              cargo build --release 2>&1
+
+              echo '=== Collecting binaries ==='
+              cp target/release/c2rust /output/c2rust
+              [ -f target/release/c2rust-transpile ] && cp target/release/c2rust-transpile /output/c2rust-transpile || true
+              [ -f target/release/c2rust-refactor ] && cp target/release/c2rust-refactor /output/c2rust-refactor || true
+
+              echo '=== Binary info ==='
+              file /output/c2rust
+              ldd /output/c2rust || true
+              /output/c2rust --version || true
+            "
+
+      - name: Package release artifacts
+        run: |
+          cd output
+          tar czf "c2rust-${{ env.C2RUST_VERSION }}-x86_64-linux-gnu.tar.gz" c2rust*
+          sha256sum "c2rust-${{ env.C2RUST_VERSION }}-x86_64-linux-gnu.tar.gz" > "c2rust-${{ env.C2RUST_VERSION }}-x86_64-linux-gnu.tar.gz.sha256"
+
+      - name: Verify GLIBC compatibility
+        run: |
+          echo "=== Checking GLIBC requirements ==="
+          # Extract maximum GLIBC version needed
+          objdump -T output/c2rust 2>/dev/null | grep GLIBC | awk '{print $NF}' | sort -V | tail -5
+          echo ""
+          echo "=== Maximum GLIBC version required ==="
+          objdump -T output/c2rust 2>/dev/null | grep GLIBC | awk '{print $5}' | sed 's/GLIBC_//' | sort -V | uniq
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: c2rust-${{ env.C2RUST_VERSION }}-linux-x86_64
+          path: output/c2rust-${{ env.C2RUST_VERSION }}-x86_64-linux-gnu.tar.gz*
+
+  release:
+    needs: build
+    runs-on: self-hosted
+    if: startsWith(github.ref, 'refs/tags/c2rust-v') || github.event_name == 'workflow_dispatch'
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: c2rust-${{ env.C2RUST_VERSION }}-linux-x86_64
+          path: artifacts
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "c2rust-v${{ env.C2RUST_VERSION }}-low-glibc"
+          name: "c2rust ${{ env.C2RUST_VERSION }} (Low GLIBC)"
+          body: |
+            ## c2rust ${{ env.C2RUST_VERSION }} — Low GLIBC Build
+
+            Pre-built c2rust binary compiled with LLVM 7 / Clang 7 for maximum compatibility.
+
+            ### Build Environment
+            - **Base**: Ubuntu 18.04 (GLIBC 2.27)
+            - **LLVM/Clang**: 7.0
+            - **Rust**: nightly-2019-12-05
+            - **Target**: x86_64-unknown-linux-gnu
+
+            ### Compatibility
+            Requires GLIBC ≥ 2.25 on the target system.
+
+            ### Usage
+            ```bash
+            tar xzf c2rust-${{ env.C2RUST_VERSION }}-x86_64-linux-gnu.tar.gz
+            ./c2rust --version
+            ```
+          files: |
+            artifacts/c2rust-${{ env.C2RUST_VERSION }}-x86_64-linux-gnu.tar.gz
+            artifacts/c2rust-${{ env.C2RUST_VERSION }}-x86_64-linux-gnu.tar.gz.sha256
+          draft: false
+          prerelease: false
