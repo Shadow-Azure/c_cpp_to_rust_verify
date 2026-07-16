@@ -277,6 +277,7 @@ jobs:
           kill $EXPORT_PID 2>/dev/null || true
 
       - name: Switch Rust to stable
+        if: false
         run: |
           if [ -f rust-flashdb/rust-toolchain.toml ]; then
             cat > rust-flashdb/rust-toolchain.toml << 'EOF'
