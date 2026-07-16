@@ -172,14 +172,21 @@ jobs:
           : > /tmp/compile-trajectory.jsonl
           echo "compile trajectory initialized: /tmp/compile-trajectory.jsonl"
 
-      - name: Configure MiniMax provider
+      - name: Configure providers
         env:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          # Create opencode.json with MiniMax provider configuration
+          # Create opencode.json with DeepSeek + MiniMax provider configuration
           cat > opencode.json <<'EOF'
           {
             "provider": {
+              "deepseek": {
+                "api": "https://api.deepseek.com",
+                "options": {
+                  "apiKey": "${DEEPSEEK_API_KEY}"
+                }
+              },
               "minimax": {
                 "npm": "@ai-sdk/openai-compatible",
                 "options": {
@@ -196,9 +203,10 @@ jobs:
             }
           }
           EOF
-          # Replace placeholder with actual key
+          # Replace placeholders with actual keys
+          sed -i "s|\${DEEPSEEK_API_KEY}|${DEEPSEEK_API_KEY}|g" opencode.json
           sed -i "s|\${MINIMAX_API_KEY}|${MINIMAX_API_KEY}|g" opencode.json
-          echo "✅ opencode.json created with MiniMax provider"
+          echo "✅ opencode.json created with DeepSeek + MiniMax providers"
 
       - name: Run OpenCode conversion
         run: |
