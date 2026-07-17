@@ -3,7 +3,7 @@
 FROM opensuse/leap:15.5
 
 LABEL maintainer="Shadow-Azure"
-LABEL description="c2rust v0.15.0 build environment with LLVM 15 on openSUSE"
+LABEL description="c2rust v0.15.0 build environment with LLVM 9 on openSUSE"
 
 # Install system dependencies
 RUN zypper --non-interactive install \
@@ -12,9 +12,9 @@ RUN zypper --non-interactive install \
     cmake \
     curl \
     git \
-    llvm15-devel \
-    clang15 \
-    libclang15-devel \
+    llvm9-devel \
+    clang9 \
+    libclang9-devel \
     libopenssl-devel \
     pkg-config \
     python3 \
@@ -27,13 +27,13 @@ RUN zypper --non-interactive install \
     make
 
 # Create symlinks so llvm-config and clang are available without version suffix
-RUN ln -sf /usr/bin/llvm-config-15 /usr/bin/llvm-config && \
-    ln -sf /usr/bin/clang-15 /usr/bin/clang && \
-    ln -sf /usr/bin/clang++-15 /usr/bin/clang++
+RUN ln -sf /usr/bin/llvm-config-9 /usr/bin/llvm-config && \
+    ln -sf /usr/bin/clang-9 /usr/bin/clang && \
+    ln -sf /usr/bin/clang++-9 /usr/bin/clang++
 
 # Set LLVM environment for c2rust build system
-ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-15
-ENV LIBCLANG_PATH=/usr/lib/llvm15/lib
+ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-9
+ENV LIBCLANG_PATH=/usr/lib/llvm9/lib
 
 # Install Rust (latest stable for c2rust v0.15.0)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
@@ -47,9 +47,9 @@ ENV CARGO_HOME="/root/.cargo"
 RUN echo "=== GLIBC version ===" && \
     ldd --version | head -1 && \
     echo "=== LLVM version ===" && \
-    llvm-config-15 --version && \
+    llvm-config-9 --version && \
     echo "=== Clang version ===" && \
-    clang-15 --version | head -1 && \
+    clang-9 --version | head -1 && \
     echo "=== Rust version ===" && \
     rustc --version && \
     echo "=== Cargo version ===" && \
