@@ -6,15 +6,16 @@ LABEL maintainer="Shadow-Azure"
 LABEL description="c2rust v0.15.0 build environment with LLVM 9 on openSUSE"
 
 # Install system dependencies
+# openSUSE Leap 15.5 ships LLVM 9.0.2 as default (unversioned package names)
 RUN zypper --non-interactive install \
     -y \
     patterns-devel-base-devel_basis \
     cmake \
     curl \
     git \
-    llvm9-devel \
-    clang9 \
-    libclang9-devel \
+    llvm-devel \
+    clang \
+    libclang-devel \
     libopenssl-devel \
     pkg-config \
     python3 \
@@ -26,14 +27,9 @@ RUN zypper --non-interactive install \
     gcc-c++ \
     make
 
-# Create symlinks so llvm-config and clang are available without version suffix
-RUN ln -sf /usr/bin/llvm-config-9 /usr/bin/llvm-config && \
-    ln -sf /usr/bin/clang-9 /usr/bin/clang && \
-    ln -sf /usr/bin/clang++-9 /usr/bin/clang++
-
 # Set LLVM environment for c2rust build system
-ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-9
-ENV LIBCLANG_PATH=/usr/lib/llvm9/lib
+ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config
+ENV LIBCLANG_PATH=/usr/lib64
 
 # Install Rust (latest stable for c2rust v0.15.0)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
