@@ -27,12 +27,13 @@ RUN zypper --non-interactive install \
     make
 
 # Create symlinks so llvm-config and clang are available without version suffix
-RUN ln -sf /usr/bin/llvm-config-7 /usr/bin/llvm-config && \
-    ln -sf /usr/bin/clang-7 /usr/bin/clang && \
-    ln -sf /usr/bin/clang++-7 /usr/bin/clang++
+# openSUSE puts LLVM 7 binaries in /usr/lib/llvm7/bin/
+RUN ln -sf /usr/lib/llvm7/bin/llvm-config /usr/bin/llvm-config && \
+    ln -sf /usr/lib/llvm7/bin/clang /usr/bin/clang && \
+    ln -sf /usr/lib/llvm7/bin/clang++ /usr/bin/clang++
 
 # Set LLVM environment for c2rust build system
-ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-7
+ENV LLVM_CONFIG_PATH=/usr/lib/llvm7/bin/llvm-config
 ENV LIBCLANG_PATH=/usr/lib/llvm7/lib
 
 # Install Rust (latest stable for c2rust v0.15.0)
