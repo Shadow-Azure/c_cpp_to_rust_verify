@@ -1,44 +1,39 @@
-# c2rust low-GLIBC build environment
-# Base: Ubuntu 18.04 (Bionic) → GLIBC 2.27, compatible with GLIBC 2.25+ targets
-# LLVM/Clang 7 from Ubuntu default repos
-FROM ubuntu:18.04
+# c2rust build environment with openSUSE
+# Using openSUSE for SUSE repository compatibility
+FROM opensuse/leap:15.5
 
 LABEL maintainer="Shadow-Azure"
-LABEL description="c2rust v0.15.0 build environment with LLVM 7, low GLIBC compatibility"
-
-# Avoid interactive prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Use Ubuntu archive mirrors (Aliyun for China mainland speed)
-RUN sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list && \
-    sed -i 's|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
+LABEL description="c2rust v0.15.0 build environment with LLVM 7 on openSUSE"
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
+RUN zypper --non-interactive install \
+    -y \
+    devel_basis \
     cmake \
     curl \
     git \
-    llvm-7-dev \
-    clang-7 \
-    libclang-7-dev \
-    libssl-dev \
+    llvm7-devel \
+    clang7 \
+    libclang7-devel \
+    libopenssl-devel \
     pkg-config \
     python3 \
     python3-pip \
-    zlib1g-dev \
+    zlib-devel \
     ca-certificates \
-    xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+    xz \
+    gcc \
+    gcc-c++ \
+    make
 
 # Create symlinks so llvm-config and clang are available without version suffix
-RUN update-alternatives --install /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-7 100 && \
-    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-7 100 && \
-    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-7 100
+RUN ln -sf /usr/bin/llvm-config-7 /usr/bin/llvm-config && \
+    ln -sf /usr/bin/clang-7 /usr/bin/clang && \
+    ln -sf /usr/bin/clang++-7 /usr/bin/clang++
 
 # Set LLVM environment for c2rust build system
 ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-7
-ENV LIBCLANG_PATH=/usr/lib/llvm-7/lib
+ENV LIBCLANG_PATH=/usr/lib/llvm7/lib
 
 # Install Rust (nightly-2019-12-05 required by c2rust v0.15.0)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
