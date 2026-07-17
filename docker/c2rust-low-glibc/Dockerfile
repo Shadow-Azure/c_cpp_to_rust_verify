@@ -3,18 +3,18 @@
 FROM opensuse/leap:15.5
 
 LABEL maintainer="Shadow-Azure"
-LABEL description="c2rust v0.15.0 build environment with LLVM 7 on openSUSE"
+LABEL description="c2rust v0.15.0 build environment with LLVM 15 on openSUSE"
 
 # Install system dependencies
 RUN zypper --non-interactive install \
     -y \
-    devel_basis \
+    patterns-devel-base-devel_basis \
     cmake \
     curl \
     git \
-    llvm7-devel \
-    clang7 \
-    libclang7-devel \
+    llvm15-devel \
+    clang15 \
+    libclang15-devel \
     libopenssl-devel \
     pkg-config \
     python3 \
@@ -27,17 +27,17 @@ RUN zypper --non-interactive install \
     make
 
 # Create symlinks so llvm-config and clang are available without version suffix
-RUN ln -sf /usr/bin/llvm-config-7 /usr/bin/llvm-config && \
-    ln -sf /usr/bin/clang-7 /usr/bin/clang && \
-    ln -sf /usr/bin/clang++-7 /usr/bin/clang++
+RUN ln -sf /usr/bin/llvm-config-15 /usr/bin/llvm-config && \
+    ln -sf /usr/bin/clang-15 /usr/bin/clang && \
+    ln -sf /usr/bin/clang++-15 /usr/bin/clang++
 
 # Set LLVM environment for c2rust build system
-ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-7
-ENV LIBCLANG_PATH=/usr/lib/llvm7/lib
+ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-15
+ENV LIBCLANG_PATH=/usr/lib/llvm15/lib
 
-# Install Rust (nightly-2019-12-05 required by c2rust v0.15.0)
+# Install Rust (latest stable for c2rust v0.15.0)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    --default-toolchain nightly-2019-12-05
+    --default-toolchain stable
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 ENV RUSTUP_HOME="/root/.rustup"
@@ -47,9 +47,9 @@ ENV CARGO_HOME="/root/.cargo"
 RUN echo "=== GLIBC version ===" && \
     ldd --version | head -1 && \
     echo "=== LLVM version ===" && \
-    llvm-config-7 --version && \
+    llvm-config-15 --version && \
     echo "=== Clang version ===" && \
-    clang-7 --version | head -1 && \
+    clang-15 --version | head -1 && \
     echo "=== Rust version ===" && \
     rustc --version && \
     echo "=== Cargo version ===" && \
