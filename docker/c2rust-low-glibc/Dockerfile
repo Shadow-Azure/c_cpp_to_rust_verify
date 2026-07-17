@@ -44,17 +44,5 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 ENV RUSTUP_HOME="/root/.rustup"
 ENV CARGO_HOME="/root/.cargo"
 
-# Verify installations
-RUN echo "=== GLIBC version ===" && \
-    ldd --version | head -1 && \
-    echo "=== LLVM version ===" && \
-    /usr/lib/llvm7/bin/llvm-config --version && \
-    echo "=== Clang version ===" && \
-    /usr/lib/llvm7/bin/clang --version | head -1 && \
-    echo "=== Rust version ===" && \
-    rustc --version && \
-    echo "=== Cargo version ===" && \
-    cargo --version
-
 WORKDIR /build
 CMD ["/bin/bash"]
