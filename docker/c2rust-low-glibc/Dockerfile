@@ -47,9 +47,9 @@ ENV CARGO_HOME="/root/.cargo"
 RUN echo "=== GLIBC version ===" && \
     ldd --version | head -1 && \
     echo "=== LLVM version ===" && \
-    llvm-config-9 --version && \
+    llvm-config-7 --version && \
     echo "=== Clang version ===" && \
-    clang-9 --version | head -1 && \
+    clang-7 --version | head -1 && \
     echo "=== Rust version ===" && \
     rustc --version && \
     echo "=== Cargo version ===" && \
