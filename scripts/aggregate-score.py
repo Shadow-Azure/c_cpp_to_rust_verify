@@ -215,15 +215,17 @@ def generate_report(
             imp = cov.get("implemented", 0)
             pct = (imp / exp * 100) if exp > 0 else 0
             lines.append(f"### API 覆盖率: {imp}/{exp} ({pct:.0f}%)\n")
-            lines.append("| 类别 | 期望 | 实现 | 覆盖率 |")
-            lines.append("|------|------|------|--------|")
-            for cat, label in [("crc32", "CRC32"), ("kvdb", "KVDB"), ("tsdb", "TSDB")]:
-                c = cov.get(cat, {})
-                e = c.get("expected", 0)
-                i = c.get("implemented", 0)
-                p = (i / e * 100) if e > 0 else 0
-                lines.append(f"| {label} | {e} | {i} | {p:.0f}% |")
-            lines.append("")
+            # Show per-category coverage if available
+            per_cat = {k: v for k, v in cov.items() if k not in ("expected", "implemented") and isinstance(v, dict)}
+            if per_cat:
+                lines.append("| 类别 | 期望 | 实现 | 覆盖率 |")
+                lines.append("|------|------|------|--------|")
+                for cat, c in per_cat.items():
+                    e = c.get("expected", 0)
+                    i = c.get("implemented", 0)
+                    p = (i / e * 100) if e > 0 else 0
+                    lines.append(f"| {cat} | {e} | {i} | {p:.0f}% |")
+                lines.append("")
 
         # Rust 构建错误
         if "rust_build_error" in equiv_result:
@@ -243,9 +245,8 @@ def generate_report(
             if details:
                 lines.append("| 类别 | 通过 | 失败 |")
                 lines.append("|------|------|------|")
-                for cat, label in [("crc32", "CRC32"), ("kvdb", "KVDB"), ("tsdb", "TSDB")]:
-                    d = details.get(cat, {})
-                    lines.append(f"| {label} | {d.get('passed', 0)} | {d.get('failed', 0)} |")
+                for cat, d in details.items():
+                    lines.append(f"| {cat} | {d.get('passed', 0)} | {d.get('failed', 0)} |")
     lines.append("")
 
     # 性能详情
@@ -273,24 +274,12 @@ def generate_report(
         lines.append("| 指标 | C 基线 (µs/op) | Rust (µs/op) | 比率 | 状态 |")
         lines.append("|------|----------------|--------------|------|------|")
 
-        metric_labels = {
-            "kvdb_set_string": "KVDB Set (String)",
-            "kvdb_set_blob": "KVDB Set (Blob)",
-            "kvdb_get_string": "KVDB Get (String)",
-            "kvdb_get_blob": "KVDB Get (Blob)",
-            "kvdb_update_string": "KVDB Update",
-            "kvdb_iterate_all": "KVDB Iterate",
-            "kvdb_delete": "KVDB Delete",
-            "tsdb_append": "TSDB Append",
-            "tsdb_iterate_all": "TSDB Iterate",
-            "tsdb_iter_by_time": "TSDB Iter by Time",
-            "tsdb_query_count": "TSDB Query Count",
-        }
-
         c_metrics = perf_result.get("c_metrics", {})
         rust_metrics = perf_result.get("rust_metrics", {})
 
-        for key, label in metric_labels.items():
+        # Show all metrics that have ratios (dynamically, not hardcoded to any project)
+        for key in ratios:
+            label = key.replace("_", " ").title()
             c_val = c_metrics.get(key, 0)
             r_val = rust_metrics.get(key, 0)
             ratio = ratios.get(key, 0)
