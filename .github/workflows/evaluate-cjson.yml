@@ -291,7 +291,7 @@ jobs:
 
           opencode run \
             --dangerously-skip-permissions \
-            --model "minimax/MiniMax-M2.7-highspeed" \
+            --model "deepseek/deepseek-v4-pro" \
             --agent build \
             --title "cJSON C→Rust conversion" \
             "使用 c-to-rust skill 重构 C 语言的 cjson 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) cjson/source/compile_commands.json 已预生成（-x c -std=gnu99），不要修改 compile_commands.json。cJSON 是纯 C89 单文件库（cJSON.c + cJSON.h），无 C11 原子、无平台代码、无系统库依赖，转换应当比 libuv 顺利。3) 输出目录必须是 rust-cjson/（不是 cjson-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。5) 如果 c2rust 因模块名 panic（例如 cJSON 模块名大小写问题），将输出文件重命名（如 cJSON_.rs）并在 lib.rs 用 #[path=\"...\"] 或 mod 显式声明，然后继续；其他 panic 则跳过该文件不要反复调试。"
