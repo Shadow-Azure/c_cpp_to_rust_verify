@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# eval-compile.sh — 评测 Rust 代码是否能编译通过
+# compile.sh — 评测 Rust 代码是否能编译通过
 # 输出 JSON 结果到 stdout，详细日志到 stderr
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 RUST_DIR="${PROJECT_ROOT}/rust-flashdb"
 LOG_FILE="/tmp/compile-detail.log"
 

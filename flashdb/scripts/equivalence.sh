@@ -24,11 +24,11 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+ROOT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 RUST_DIR="$ROOT_DIR/rust-flashdb"
-FFI_DIR="$ROOT_DIR/ffi-test"  # 预置的 FFI 测试基础设施
+FFI_DIR="$ROOT_DIR/flashdb/ffi-test"  # 预置的 FFI 测试基础设施
 FFI_RS="$RUST_DIR/src/ffi.rs"
-C_API_H="$ROOT_DIR/flashdb/inc/flashdb.h"
+C_API_H="$ROOT_DIR/flashdb/source/inc/flashdb.h"
 DRIVER_C="$FFI_DIR/compare_tests.c"
 
 # ============================================================

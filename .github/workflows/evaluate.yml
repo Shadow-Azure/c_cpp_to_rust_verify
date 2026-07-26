@@ -136,7 +136,7 @@ jobs:
 
       - name: Generate compile_commands.json with bear
         run: |
-          cd flashdb
+          cd flashdb/source
           bear -- make -C tests clean all
           echo "✅ compile_commands.json generated"
           cat compile_commands.json | python3 -m json.tool | head -30
@@ -147,24 +147,24 @@ jobs:
           # conversion errors. Add "-x c" to force C mode.
           python3 -c "
           import json
-          with open('flashdb/compile_commands.json') as f:
+          with open('flashdb/source/compile_commands.json') as f:
               cmds = json.load(f)
           for cmd in cmds:
               args = cmd.get('arguments', [])
               if '-x' not in args:
                   # Insert '-x c' after the compiler binary
                   cmd['arguments'] = [args[0], '-x', 'c'] + args[1:]
-          with open('flashdb/compile_commands.json', 'w') as f:
+          with open('flashdb/source/compile_commands.json', 'w') as f:
               json.dump(cmds, f, indent=2)
           "
           echo "✅ Added -x c to compile_commands.json"
-          cat flashdb/compile_commands.json | python3 -m json.tool | head -20
+          cat flashdb/source/compile_commands.json | python3 -m json.tool | head -20
 
       - name: Upload compile_commands.json
         uses: actions/upload-artifact@v4
         with:
           name: compile-commands
-          path: flashdb/compile_commands.json
+          path: flashdb/source/compile_commands.json
           retention-days: 7
 
       - name: Initialize compile trajectory
@@ -284,7 +284,7 @@ jobs:
             --model "deepseek/deepseek-v4-pro" \
             --agent build \
             --title "FlashDB C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。"
+            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/source/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。"
 
           # Stop the background export loop
           kill $EXPORT_PID 2>/dev/null || true
@@ -408,28 +408,28 @@ jobs:
       - name: "Evaluate: Compilation"
         id: compile
         run: |
-          bash scripts/eval-compile.sh > /tmp/compile-result.json
+          bash flashdb/scripts/compile.sh > /tmp/compile-result.json
           echo "result-file=/tmp/compile-result.json" >> $GITHUB_OUTPUT
 
       # --- 测试评测 ---
       - name: "Evaluate: Tests"
         id: tests
         run: |
-          bash scripts/eval-tests.sh > /tmp/test-result.json
+          bash flashdb/scripts/tests.sh > /tmp/test-result.json
           echo "result-file=/tmp/test-result.json" >> $GITHUB_OUTPUT
 
       # --- 功能等价评测 ---
       - name: "Evaluate: FFI Equivalence"
         id: equiv
         run: |
-          bash scripts/eval-equivalence.sh > /tmp/equiv-result.json 2>/tmp/equiv-detail.log
+          bash flashdb/scripts/equivalence.sh > /tmp/equiv-result.json 2>/tmp/equiv-detail.log
           echo "result-file=/tmp/equiv-result.json" >> $GITHUB_OUTPUT
 
       # --- 性能评测 ---
       - name: "Evaluate: Performance"
         id: perf
         run: |
-          bash scripts/eval-performance.sh > /tmp/perf-result.json 2>/tmp/perf-detail.log
+          bash flashdb/scripts/performance.sh > /tmp/perf-result.json 2>/tmp/perf-detail.log
           echo "result-file=/tmp/perf-result.json" >> $GITHUB_OUTPUT
 
       # --- 聚合评分 ---
@@ -441,7 +441,8 @@ jobs:
             /tmp/test-result.json \
             /tmp/equiv-result.json \
             /tmp/perf-result.json \
-            /tmp/eval-report.md
+            /tmp/eval-report.md \
+            flashdb/eval-config.json
 
       - name: Download compile trajectory
         if: always()

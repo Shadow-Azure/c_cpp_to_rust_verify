@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# eval-tests.sh — 评测 Rust 测试是否全部通过
+# tests.sh — 评测 Rust 测试是否全部通过
 # 输出 JSON 结果到 stdout
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 RUST_DIR="${PROJECT_ROOT}/rust-flashdb"
 LOG_FILE="/tmp/test-detail.log"
 

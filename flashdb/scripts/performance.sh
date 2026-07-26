@@ -14,10 +14,10 @@
 
 set -u
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-C_BENCH_DIR="$ROOT_DIR/flashdb/tests/benchmark"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+C_BENCH_DIR="$ROOT_DIR/flashdb/source/tests/benchmark"
 RUST_DIR="$ROOT_DIR/rust-flashdb"
-FRAMEWORK_BENCH="$ROOT_DIR/bench/rust/flashdb_bench.rs"
+FRAMEWORK_BENCH="$ROOT_DIR/flashdb/bench/flashdb_bench.rs"
 
 C_BUILD_LOG="/tmp/c-bench-build.log"
 C_RUN_LOG="/tmp/c-bench-run.log"
@@ -30,8 +30,8 @@ echo '{}' > "$C_METRICS_FILE"
 echo '{}' > "$RUST_METRICS_FILE"
 : > "$NOTE_FILE"
 
-if [ ! -f "$ROOT_DIR/eval-benchmarks.yml" ]; then
-  printf '{"error": "eval-benchmarks.yml not found"}\n'
+if [ ! -f "$ROOT_DIR/flashdb/eval-benchmarks.yml" ]; then
+  printf '{"error": "flashdb/eval-benchmarks.yml not found"}\n'
   exit 0
 fi
 
