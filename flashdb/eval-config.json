@@ -1,4 +1,6 @@
 {
+  "project_name": "FlashDB",
+  "perf_note": "FlashDB 为文件 I/O 密集型，正确转换的比值通常接近 1.0x；该维度主要用于捕捉灾难性回归",
   "weights": {
     "compile": 0.40,
     "test": 0.20,

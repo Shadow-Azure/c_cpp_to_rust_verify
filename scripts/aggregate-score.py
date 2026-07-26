@@ -115,6 +115,8 @@ def generate_report(
     equiv_result: dict,
     perf_result: dict,
     weights: dict,
+    project_name: str = "C/C++",
+    perf_note: str = "",
 ) -> str:
     compile_w = weights.get("compile", 0.40)
     test_w = weights.get("test", 0.20)
@@ -135,7 +137,7 @@ def generate_report(
     max_r = perf_result.get("max_ratio_allowed", 1.5)
 
     lines = []
-    lines.append("# FlashDB C→Rust 迁移评测报告\n")
+    lines.append(f"# {project_name} C→Rust 迁移评测报告\n")
     lines.append(f"## 总分: {total:.1%} (等级: {grade(total)})\n")
     lines.append(f"| 维度 | 权重 | 得分 | 状态 |")
     lines.append(f"|------|------|------|------|")
@@ -260,9 +262,10 @@ def generate_report(
             lines.append(f"- C benchmark 诊断: {c_bench_diag}")
     else:
         lines.append(f"- 平均性能比: {avg_ratio}x (基准: ≤{max_r}x)")
-        # FlashDB is file-I/O bound, so a correct transpilation lands near 1.0x;
-        # the ratio mainly catches catastrophic regressions, not codegen finesse.
-        lines.append("- ℹ️ FlashDB 为文件 I/O 密集型，正确转换的比值通常接近 1.0x；该维度主要用于捕捉灾难性回归")
+        # Project-specific performance note (e.g. FlashDB is file-I/O bound);
+        # emitted only when the eval-config provides one.
+        if perf_note:
+            lines.append(f"- ℹ️ {perf_note}")
         note = perf_result.get("note", "")
         if note:
             lines.append(f"- 备注: {note}")
@@ -315,11 +318,15 @@ def main():
 
     # 加载评测配置
     weights = {"compile": 0.40, "test": 0.20, "equivalence": 0.25, "performance": 0.15}
+    project_name = "C/C++"
+    perf_note = ""
     if config_file and Path(config_file).exists():
         try:
             with open(config_file) as f:
                 cfg = json.load(f)
                 weights = cfg.get("weights", weights)
+                project_name = cfg.get("project_name", project_name)
+                perf_note = cfg.get("perf_note", perf_note)
         except Exception:
             pass
 
@@ -328,7 +335,7 @@ def main():
     equiv_result = load_json(equiv_file)
     perf_result = load_json(perf_file)
 
-    report = generate_report(compile_result, test_result, equiv_result, perf_result, weights)
+    report = generate_report(compile_result, test_result, equiv_result, perf_result, weights, project_name, perf_note)
 
     if output_file:
         with open(output_file, "w") as f:
