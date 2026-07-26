@@ -140,7 +140,7 @@ jobs:
       - name: Fix compile_commands.json for C mode
         run: |
           python3 -c "
-          import json
+          import json, re
           with open('libuv/source/compile_commands.json') as f:
               cmds = json.load(f)
           for cmd in cmds:
@@ -148,12 +148,21 @@ jobs:
               if args:
                   if '-x' not in args:
                       cmd['arguments'] = [args[0], '-x', 'c'] + args[1:]
+                  # Replace -std=c11/gnu11/c17/gnu17 with gnu99 to avoid
+                  # c2rust panicking on C11 atomics (AtomicExpr node export bug)
+                  cmd['arguments'] = [
+                      '-std=gnu99' if re.match(r'-std=(c|gnu)(11|1x|17|2x)', a) else a
+                      for a in cmd['arguments']
+                  ]
               else:
                   command = cmd.get('command', '')
-                  if command and ' -x c ' not in command:
-                      sp = command.find(' ')
-                      if sp > 0:
-                          cmd['command'] = command[:sp] + ' -x c' + command[sp:]
+                  if command:
+                      if ' -x c ' not in command:
+                          sp = command.find(' ')
+                          if sp > 0:
+                              command = command[:sp] + ' -x c' + command[sp:]
+                      command = re.sub(r'-std=(c|gnu)(11|1x|17|2x)\b', '-std=gnu99', command)
+                      cmd['command'] = command
           with open('libuv/source/compile_commands.json', 'w') as f:
               json.dump(cmds, f, indent=2)
           "
