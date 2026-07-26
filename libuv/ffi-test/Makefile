@@ -51,4 +51,4 @@ $(BUILD_DIR)/libuv_rust.a:
 	fi
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(LIBUV_DIR)/build

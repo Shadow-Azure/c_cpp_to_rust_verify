@@ -122,7 +122,7 @@ RUST_DIAG="$(cat /tmp/perf-rust-diag.txt 2>/dev/null || true)"
     if [ ! -d "$RUST_DIR" ] || [ ! -f "$RUST_DIR/Cargo.toml" ]; then
       echo "no converted Rust crate (rust-flashdb/ not found)"
     elif [ ! -f "$FRAMEWORK_BENCH" ]; then
-      echo "framework bench not found (bench/rust/flashdb_bench.rs missing)"
+      echo "framework bench not found (flashdb/bench/flashdb_bench.rs missing)"
     fi
   elif [ "$RUST_BUILD_OK" = false ]; then
     echo "Rust benchmark build/run failed (FFI drift or compile error; see perf-detail.log)"

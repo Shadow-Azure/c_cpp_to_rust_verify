@@ -22,7 +22,7 @@ log "--- Cargo version: $(cargo --version 2>&1) ---"
 
 TEST_OUTPUT=""
 EXIT_CODE=0
-TEST_OUTPUT=$(CARGO_TERM_COLOR=never cargo test 2>&1) || EXIT_CODE=$?
+TEST_OUTPUT=$(CARGO_TERM_COLOR=never timeout 600 cargo test 2>&1) || EXIT_CODE=$?
 
 log "--- cargo test exited with code $EXIT_CODE ---"
 log "--- Test output (first 200 lines) ---"

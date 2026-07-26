@@ -23,7 +23,7 @@ log "--- Cargo version: $(cargo --version 2>&1) ---"
 # 运行 cargo test，捕获输出（禁用颜色码以确保解析匹配）
 TEST_OUTPUT=""
 EXIT_CODE=0
-TEST_OUTPUT=$(CARGO_TERM_COLOR=never cargo test 2>&1) || EXIT_CODE=$?
+TEST_OUTPUT=$(CARGO_TERM_COLOR=never timeout 600 cargo test 2>&1) || EXIT_CODE=$?
 
 log "--- cargo test exited with code $EXIT_CODE ---"
 log "--- Test output (first 200 lines) ---"

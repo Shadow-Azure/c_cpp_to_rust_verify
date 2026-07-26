@@ -335,6 +335,8 @@ jobs:
       - name: Install system dependencies
         continue-on-error: true
         run: |
+          sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
+          sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
           apt-get update && apt-get install -y bc python3 cmake
 
       # --- 编译评测 ---
