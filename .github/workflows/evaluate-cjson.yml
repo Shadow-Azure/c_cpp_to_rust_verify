@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  SKILL_VERSION: v0.13.0
+  SKILL_VERSION: v0.16.4
 
 # REUSE_CONVERT is true when the dispatcher passed a prior run ID via
 # `reuse_convert_run_id`; in that case every conversion-only step is skipped
