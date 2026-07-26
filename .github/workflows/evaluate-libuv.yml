@@ -276,7 +276,7 @@ jobs:
             --model "minimax/MiniMax-M2.7-highspeed" \
             --agent build \
             --title "libuv C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 libuv 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) libuv/source/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），不要修改 compile_commands.json。3) 输出目录必须是 rust-libuv/（不是 libuv-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。"
+            "使用 c-to-rust skill 重构 C 语言的 libuv 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) libuv/source/compile_commands.json 已预生成，包含 -x c 和 -std=gnu99 标志。-std=gnu99 是故意设置的（c2rust 在 C11 atomics 上有 bug，gnu99 可以绕过），绝对不要将其改回 c11/gnu11，不要修改 compile_commands.json。3) 输出目录必须是 rust-libuv/（不是 libuv-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。5) 如果某个 C 文件导致 c2rust panic，跳过该文件继续转译其余文件，不要反复调试同一个文件。"
 
           kill $EXPORT_PID 2>/dev/null || true
 
