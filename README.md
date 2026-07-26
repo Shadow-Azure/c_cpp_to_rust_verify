@@ -78,39 +78,51 @@ opencode run --prompt "/c-to-rust"
 ### 本地运行评测
 
 ```bash
-# 假设 rust-flashdb/ 已存在
-bash scripts/eval-compile.sh > /tmp/compile.json
-bash scripts/eval-tests.sh > /tmp/test.json
-bash scripts/eval-equivalence.sh > /tmp/equiv.json
-bash scripts/eval-performance.sh > /tmp/perf.json
+# 假设 rust-flashdb/ 已存在 (FlashDB) 或 rust-libuv/ 已存在 (libuv)
+bash flashdb/scripts/compile.sh > /tmp/compile.json
+bash flashdb/scripts/tests.sh > /tmp/test.json
+bash flashdb/scripts/equivalence.sh > /tmp/equiv.json
+bash flashdb/scripts/performance.sh > /tmp/perf.json
 python3 scripts/aggregate-score.py /tmp/compile.json /tmp/test.json /tmp/equiv.json /tmp/perf.json report.md
 ```
 
 ## 项目结构
 
+仓库按评测项目分目录组织，每个项目自带 source/ffi-test/bench/scripts/。顶层 `scripts/` 仅保留跨项目共享的脚本。
+
 ```
 .
 ├── .opencode/skills/          # Skill 目录 (CI 从 release 下载)
 ├── .github/workflows/
-│   └── evaluate.yml           # GitHub Actions 评测流水线
-├── flashdb/                   # 原始 FlashDB C 代码 (评测对象)
-│   ├── src/                   # C 源文件 (5 个)
-│   ├── inc/                   # C 头文件 (4 个)
-│   ├── tests/                 # C 单元测试 (24 个用例)
-│   └── tests/benchmark/       # C 性能基准
-├── ffi-compare/               # FFI 等价测试
-│   ├── compare_tests.c        # C 测试用例 (18 个)
-│   ├── rust_ffi.h             # Rust FFI 声明
-│   └── Makefile               # 构建系统
-├── scripts/
-│   ├── eval-compile.sh        # 编译评测脚本
-│   ├── eval-tests.sh          # 测试评测脚本
-│   ├── eval-equivalence.sh    # 功能等价评测脚本
-│   ├── eval-performance.sh    # 性能评测脚本
+│   ├── evaluate.yml           # FlashDB 评测流水线
+│   └── evaluate-libuv.yml     # libuv 评测流水线
+├── flashdb/                   # FlashDB 评测项目
+│   ├── source/                # 原始 FlashDB C 代码 (评测对象)
+│   │   ├── src/               # C 源文件 (5 个)
+│   │   ├── inc/               # C 头文件 (4 个)
+│   │   └── tests/             # C 单元测试 / 性能基准
+│   ├── ffi-test/              # FFI 等价测试 (compare_tests.c, Makefile)
+│   ├── ffi-compare/           # FFI 对照测试 (compare_tests.c, Makefile)
+│   ├── bench/                 # Rust 性能基准 (flashdb_bench.rs)
+│   ├── scripts/               # FlashDB 评测脚本
+│   │   ├── compile.sh         # 编译评测
+│   │   ├── tests.sh           # 测试评测
+│   │   ├── equivalence.sh     # 功能等价评测
+│   │   └── performance.sh     # 性能评测
+│   ├── eval-config.json       # FlashDB 评测权重和阈值
+│   └── eval-benchmarks.yml    # FlashDB 基准测试配置
+├── libuv/                     # libuv 评测项目
+│   ├── source/                # libuv C 源码 (git submodule)
+│   ├── ffi-test/              # FFI 等价测试 (compare_tests.c, Makefile)
+│   ├── bench/                 # Rust 性能基准 (libuv_bench.rs)
+│   ├── scripts/               # libuv 评测脚本 (compile/tests/equivalence/performance)
+│   ├── eval-config.json       # libuv 评测权重和阈值
+│   └── eval-benchmarks.yml    # libuv 基准测试配置
+├── scripts/                   # 跨项目共享脚本
 │   └── aggregate-score.py     # 评分聚合脚本
 ├── opencode.json              # OpenCode 项目配置
-├── eval-config.json           # 评测权重和阈值配置
-└── rust-flashdb/              # (运行后生成) Rust 转换结果
+├── rust-flashdb/              # (运行后生成) FlashDB Rust 转换结果
+└── rust-libuv/                # (运行后生成) libuv Rust 转换结果
 ```
 
 ## 评测报告示例
