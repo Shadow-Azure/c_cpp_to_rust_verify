@@ -72,7 +72,7 @@ C_BUILD_OK=false
 C_RUN_OK=false
 if [ -f "$C_BENCH_SRC" ]; then
   # Build C libuv static library first (if not already built)
-  if [ ! -f "$LIBUV_DIR/build/libuv_a.a" ]; then
+  if [ ! -f "$LIBUV_DIR/build/libuv.a" ]; then
     cd "$LIBUV_DIR"
     cmake -B build -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release >> "$C_BUILD_LOG" 2>&1
     cmake --build build --config Release >> "$C_BUILD_LOG" 2>&1
@@ -81,7 +81,7 @@ if [ -f "$C_BENCH_SRC" ]; then
 
   # Compile benchmark
   if cc -O2 -I "$LIBUV_DIR/include" "$C_BENCH_SRC" \
-      "$LIBUV_DIR/build/libuv_a.a" -lpthread -ldl -lrt \
+      "$LIBUV_DIR/build/libuv.a" -lpthread -ldl -lrt \
       -o /tmp/libuv_c_bench >> "$C_BUILD_LOG" 2>&1; then
     C_BUILD_OK=true
     if timeout 300 /tmp/libuv_c_bench > "$C_RUN_LOG" 2>&1; then

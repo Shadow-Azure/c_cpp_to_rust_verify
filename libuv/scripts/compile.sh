@@ -68,7 +68,7 @@ printf '  "exit_code": %d,\n' "$EXIT_CODE"
 printf '  "errors": %d,\n' "$ERROR_COUNT"
 printf '  "warnings": %d,\n' "$WARNING_COUNT"
 printf '  "total_fn": %d,\n' "$TOTAL_FN"
-printf '  "unsafe_fn": %d,\n' "$UNSAFE_FN"
+printf '  "unsafe_fn": %d\n' "$UNSAFE_FN"
 printf '}\n'
 
 exit 0

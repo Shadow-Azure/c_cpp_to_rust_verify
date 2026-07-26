@@ -1,7 +1,7 @@
 # libuv/ffi-test/Makefile — 编译 FFI 功能等价测试
 #
 # 用法：
-#   make c-lib          # 用 CMake 编译 C 静态库 (libuv_a.a)
+#   make c-lib          # 用 CMake 编译 C 静态库 (libuv.a)
 #   make compare-c      # 编译 C 参考测试
 #   make compare-rust   # 编译 Rust 测试
 #   make all            # 编译所有
@@ -27,7 +27,7 @@ c-lib:
 	@mkdir -p $(BUILD_DIR)
 	cd $(LIBUV_DIR) && cmake -B build -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
 	cmake --build $(LIBUV_DIR)/build --config Release
-	cp $(LIBUV_DIR)/build/libuv_a.a $(BUILD_DIR)/libuv_c.a
+	cp $(LIBUV_DIR)/build/libuv.a $(BUILD_DIR)/libuv_c.a
 	@echo "✅ C library built: $(BUILD_DIR)/libuv_c.a"
 
 # 编译 C 参考测试
