@@ -141,10 +141,18 @@ jobs:
         run: |
           # Add -x c -std=gnu99 to force C mode. cJSON is pure C89 so no
           # atomics preprocessing is needed (unlike libuv).
+          #
+          # Also strip GCC-specific warning flags (e.g. -Wformat-overflow) that
+          # clang doesn't recognise. Without this, c2rust-transpile fails because
+          # -Werror + -Wunknown-warning-option treats them as fatal errors.
           python3 -c "
           import json, re
           with open('cjson/source/compile_commands.json') as f:
               cmds = json.load(f)
+          # GCC-specific warning flags that clang doesn't understand.
+          GCC_WARN_FLAGS = ['-Wformat-overflow', '-Wformat-truncation',
+                            '-Wrestrict', '-Wstringop-overflow',
+                            '-Wstringop-truncation', '-Wmaybe-uninitialized']
           for cmd in cmds:
               args = cmd.get('arguments')
               if args:
@@ -155,6 +163,11 @@ jobs:
                       '-std=gnu99' if re.match(r'-std=(c|gnu)\d+', a) else a
                       for a in cmd['arguments']
                   ]
+                  # Strip GCC-specific warning flags
+                  cmd['arguments'] = [a for a in cmd['arguments'] if a not in GCC_WARN_FLAGS]
+                  # Prevent unknown-warning-option from being fatal
+                  if '-Wno-error=unknown-warning-option' not in cmd['arguments']:
+                      cmd['arguments'].append('-Wno-error=unknown-warning-option')
               else:
                   command = cmd.get('command', '')
                   if command:
@@ -163,11 +176,15 @@ jobs:
                           if sp > 0:
                               command = command[:sp] + ' -x c' + command[sp:]
                       command = re.sub(r'-std=(c|gnu)\d+\b', '-std=gnu99', command)
+                      for flag in GCC_WARN_FLAGS:
+                          command = command.replace(' ' + flag, '')
+                      if '-Wno-error=unknown-warning-option' not in command:
+                          command += ' -Wno-error=unknown-warning-option'
                       cmd['command'] = command
           with open('cjson/source/compile_commands.json', 'w') as f:
               json.dump(cmds, f, indent=2)
           "
-          echo "✅ Fixed compile_commands.json (-x c, -std=gnu99)"
+          echo "✅ Fixed compile_commands.json (-x c, -std=gnu99, stripped GCC warnings)"
           cat cjson/source/compile_commands.json | python3 -m json.tool | head -20
 
       - name: Upload compile_commands.json
