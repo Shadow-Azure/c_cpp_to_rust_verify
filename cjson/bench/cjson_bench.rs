@@ -6,37 +6,23 @@
 //! Rust metrics share a format and are directly comparable by
 //! aggregate-score.py.
 //!
-//! Required FFI exports: cJSON_Parse, cJSON_Delete, cJSON_PrintUnformatted,
-//! cJSON_free, cJSON_GetArraySize, cJSON_GetArrayItem, cJSON_GetObjectItem,
-//! cJSON_IsNumber, cJSON_GetNumberValue. If the conversion omitted any of
-//! these, `cargo bench` fails to LINK and performance.sh reports "Rust
-//! benchmark build/run failed" (perf = 0). That is the intended signal.
+//! Uses the crate's ffi module re-exports (not raw extern "C" declarations)
+//! to create a proper Rust dependency that forces Cargo to link the crate's
+//! object files into the benchmark binary.
 
 use std::ffi::CString;
 use std::io::Write;
 use std::time::Instant;
 
+// Import FFI functions from the crate's ffi module (re-exports of #[no_mangle] symbols).
+// This creates a Rust-level dependency that forces the linker to include the crate.
+use rust_cjson::ffi::{
+    cJSON_Delete, cJSON_GetArrayItem, cJSON_GetArraySize, cJSON_GetNumberValue,
+    cJSON_GetObjectItem, cJSON_IsNumber, cJSON_Parse, cJSON_PrintUnformatted, cJSON_free,
+};
+
 const N_SMALL: usize = 10000;
 const N_LARGE: usize = 1000;
-
-// cJSON is an opaque struct to us — we hold it as a raw pointer.
-type CjsonPtr = *mut core::ffi::c_void;
-type CharPtr = *mut core::ffi::c_char;
-
-extern "C" {
-    fn cJSON_Parse(value: *const core::ffi::c_char) -> CjsonPtr;
-    fn cJSON_Delete(item: CjsonPtr);
-    fn cJSON_PrintUnformatted(item: CjsonPtr) -> CharPtr;
-    fn cJSON_free(object: *mut core::ffi::c_void);
-    fn cJSON_GetArraySize(array: CjsonPtr) -> core::ffi::c_int;
-    fn cJSON_GetArrayItem(array: CjsonPtr, index: core::ffi::c_int) -> CjsonPtr;
-    fn cJSON_GetObjectItem(
-        object: CjsonPtr,
-        string: *const core::ffi::c_char,
-    ) -> CjsonPtr;
-    fn cJSON_IsNumber(item: CjsonPtr) -> core::ffi::c_int;
-    fn cJSON_GetNumberValue(item: CjsonPtr) -> f64;
-}
 
 fn print_result(name: &str, n_ops: usize, elapsed_us: f64) {
     let ops_per_s = n_ops as f64 / (elapsed_us / 1e6);
