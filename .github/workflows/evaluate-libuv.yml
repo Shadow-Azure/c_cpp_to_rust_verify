@@ -144,9 +144,16 @@ jobs:
           with open('libuv/source/compile_commands.json') as f:
               cmds = json.load(f)
           for cmd in cmds:
-              args = cmd.get('arguments', [])
-              if '-x' not in args:
-                  cmd['arguments'] = [args[0], '-x', 'c'] + args[1:]
+              args = cmd.get('arguments')
+              if args:
+                  if '-x' not in args:
+                      cmd['arguments'] = [args[0], '-x', 'c'] + args[1:]
+              else:
+                  command = cmd.get('command', '')
+                  if command and ' -x c ' not in command:
+                      sp = command.find(' ')
+                      if sp > 0:
+                          cmd['command'] = command[:sp] + ' -x c' + command[sp:]
           with open('libuv/source/compile_commands.json', 'w') as f:
               json.dump(cmds, f, indent=2)
           "
