@@ -257,7 +257,7 @@ jobs:
 
           opencode run \
             --dangerously-skip-permissions \
-            --model "deepseek/deepseek-v4-pro" \
+            --model "minimax/MiniMax-M2.7-highspeed" \
             --agent build \
             --title "libuv C→Rust conversion" \
             "使用 c-to-rust skill 重构 C 语言的 libuv 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) libuv/source/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），不要修改 compile_commands.json。3) 输出目录必须是 rust-libuv/（不是 libuv-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。"
