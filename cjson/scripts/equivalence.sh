@@ -27,12 +27,16 @@ DRIVER_C="$FFI_DIR/compare_tests.c"
 # ============================================================
 
 # Derive expected public function names from cJSON.h.
-# Match cJSON_* declarations (CJSON_PUBLIC(...) cJSON_Name(...)).
-# cJSON function names contain uppercase JSON, so use [a-zA-Z0-9_].
+#
+# Only match real function declarations: cJSON marks every public API with
+# CJSON_PUBLIC(type) cJSON_Name(...);. A naive `cJSON_* \(` regex would also
+# hit `#define cJSON_False (1 << 0)` (the value starts with `(`) and the
+# function-like macros cJSON_ArrayForEach / cJSON_SetIntValue / etc., none of
+# which can be FFI-exported (macros are preprocessor text, not symbols).
 EXPECTED_FUNCS=""
 if [ -f "$C_API_H" ]; then
-  EXPECTED_FUNCS=$(grep -oE '\bcJSON_[a-zA-Z0-9_]+[[:space:]]*\(' "$C_API_H" \
-    | sed 's/[[:space:]]*($//' | sort -u)
+  EXPECTED_FUNCS=$(grep -oE "CJSON_PUBLIC\([^)]*\)[[:space:]]+cJSON_[a-zA-Z0-9_]+" "$C_API_H" \
+    | grep -oE "cJSON_[a-zA-Z0-9_]+$" | sort -u)
 fi
 EXPECTED_COUNT=$(echo "$EXPECTED_FUNCS" | grep -c . || true)
 
@@ -44,6 +48,29 @@ if [ -f "$FFI_RS" ]; then
   IMPLEMENTED_FUNCS=$(grep -oE '\bcJSON_[a-zA-Z0-9_]+' "$FFI_RS" | sort -u)
 fi
 IMPLEMENTED_COUNT=$(echo "$IMPLEMENTED_FUNCS" | grep -c . || true)
+
+# Set difference: expected functions absent from ffi.rs.
+# Emitted in the JSON below so coverage gaps name the specific API instead of
+# just a count ratio — see /tmp/equiv-detail.log for the human-readable form.
+MISSING_FUNCS=""
+if [ -n "$EXPECTED_FUNCS" ] && [ -n "$IMPLEMENTED_FUNCS" ]; then
+  MISSING_FUNCS=$(comm -23 \
+    <(printf '%s\n' "$EXPECTED_FUNCS") \
+    <(printf '%s\n' "$IMPLEMENTED_FUNCS"))
+fi
+MISSING_COUNT=$(echo "$MISSING_FUNCS" | grep -c . || true)
+
+# Build a JSON array string from MISSING_FUNCS (newline-separated). A while
+# loop is used instead of `printf "%s," $MISSING_FUNCS` because word-splitting
+# on $MISSING_FUNCS depends on IFS and silently breaks when IFS omits newline.
+MISSING_JSON=""
+if [ -n "$MISSING_FUNCS" ]; then
+  while IFS= read -r fn; do
+    [ -z "$fn" ] && continue
+    [ -n "$MISSING_JSON" ] && MISSING_JSON="${MISSING_JSON},"
+    MISSING_JSON="${MISSING_JSON}\"${fn}\""
+  done <<< "$MISSING_FUNCS"
+fi
 
 # Per-category expected/implemented counts
 PARS_EXPECTED=$(echo "$EXPECTED_FUNCS"        | grep -cE "^cJSON_(Parse|GetErrorPtr)" || true)
@@ -245,7 +272,9 @@ printf '  "failed": %d,\n' "$CASE_FAILED"
 printf '  "total": %d,\n' "$CASE_TOTAL"
 printf '  "api_coverage": {\n'
 printf '    "expected": %d,\n' "$EXPECTED_COUNT"
-printf '    "implemented": %d\n' "$IMPLEMENTED_COUNT"
+printf '    "implemented": %d,\n' "$IMPLEMENTED_COUNT"
+printf '    "missing_count": %d,\n' "$MISSING_COUNT"
+printf '    "missing": [%s]\n' "$MISSING_JSON"
 printf '  },\n'
 printf '  "details": {\n'
 printf '    "version_info": {"passed": %d, "failed": %d},\n' "$VER_PASS" "$VER_FAIL"
@@ -261,6 +290,16 @@ printf '    "delete": {"passed": %d, "failed": %d},\n' "$DEL_PASS" "$DEL_FAIL"
 printf '    "utils": {"passed": %d, "failed": %d}\n' "$UTL_PASS" "$UTL_FAIL"
 printf '  }\n'
 printf '}\n'
+
+# Always log the API coverage detail so future runs can debug gaps without
+# re-running. The diff below only prints when comparison cases diverge.
+{
+  echo "--- API coverage ---"
+  echo "expected:   $EXPECTED_COUNT"
+  echo "implemented: $IMPLEMENTED_COUNT"
+  echo "missing ($MISSING_COUNT):"
+  [ -n "$MISSING_FUNCS" ] && printf '  %s\n' $MISSING_FUNCS
+} >&2
 
 if [ "$CASE_FAILED" -gt 0 ]; then
   echo "--- Equivalence diff (C vs Rust) ---" >&2
