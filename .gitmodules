@@ -1,3 +1,6 @@
 [submodule "libuv/source"]
 	path = libuv/source
 	url = https://github.com/libuv/libuv.git
+[submodule "cjson/source"]
+	path = cjson/source
+	url = https://github.com/DaveGamble/cJSON.git

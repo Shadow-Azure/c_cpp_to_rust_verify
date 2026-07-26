@@ -1,0 +1,457 @@
+name: cJSON C→Rust Migration Evaluation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SKILL_VERSION: v0.13.0
+
+jobs:
+  # ============================================================
+  # Job 1: 使用 OpenCode + Skill 执行 C→Rust 转换
+  # ============================================================
+  convert:
+    name: "Convert: cJSON C → Rust"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake make gcc bc python3 curl wget jq libclang-dev
+
+      - name: Install c2rust
+        run: |
+          cargo install c2rust
+          c2rust --version
+
+      - name: Install opencode
+        run: |
+          npm install -g opencode-ai
+          opencode --version
+
+      - name: Verify environment
+        run: |
+          opencode --version
+          gh --version
+          clang --version | head -1
+          cmake --version | head -1
+          make --version | head -1
+
+      - name: Cache c-to-rust skill
+        id: cache-skill
+        uses: actions/cache@v4
+        with:
+          path: .opencode/skills/c-to-rust
+          key: c-to-rust-skill-${{ env.SKILL_VERSION }}-${{ runner.os }}
+
+      - name: Download c-to-rust skill from release
+        if: steps.cache-skill.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          mkdir -p .opencode/skills
+          gh release download ${{ env.SKILL_VERSION }} \
+            --repo Shadow-Azure/c_cpp_to_rust \
+            -p "c-to-rust-linux-x86_64.tar.gz" \
+            -D /tmp
+          tar xzf /tmp/c-to-rust-linux-x86_64.tar.gz -C .opencode/skills/
+          mv .opencode/skills/c-to-rust-linux-x86_64 .opencode/skills/c-to-rust
+          chmod +x .opencode/skills/c-to-rust/bin/*
+          rm /tmp/c-to-rust-linux-x86_64.tar.gz
+          echo "✅ c-to-rust skill downloaded and extracted"
+
+      - name: Setup c-to-rust skill
+        run: |
+          rm -rf .opencode/skills/smoke-c2rust
+
+          CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
+          echo "Detected clang version: $CLANG_VERSION"
+
+          SYS_RES=""
+          if [ -n "$CLANG_VERSION" ]; then
+            for ver in "${CLANG_VERSION}" "${CLANG_VERSION}.0" "${CLANG_VERSION}.0.0"; do
+              candidate="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${ver}"
+              if [ -d "$candidate/include" ]; then
+                SYS_RES="$candidate"
+                echo "✅ Found clang headers at: $SYS_RES"
+                break
+              fi
+            done
+          fi
+
+          if [ -z "$SYS_RES" ]; then
+            SYS_RES=$(find /usr/lib/llvm-* -path "*/lib/clang/*/include" -type d 2>/dev/null | head -1 | sed 's|/include$||')
+            if [ -n "$SYS_RES" ]; then
+              echo "✅ Found clang headers via fallback: $SYS_RES"
+            fi
+          fi
+
+          echo "SYS_RES=$SYS_RES exists=$(test -d "$SYS_RES/include" && echo yes || echo no)"
+
+          BUNDLED_RES=".opencode/skills/c-to-rust/lib/clang/${CLANG_VERSION}"
+          echo "BUNDLED_RES=$BUNDLED_RES exists=$(test -d $BUNDLED_RES && echo yes || echo no)"
+
+          if [ -n "$SYS_RES" ] && [ -d "$SYS_RES/include" ]; then
+            for ver in "${CLANG_VERSION}" "18" "15"; do
+              BUNDLED=".opencode/skills/c-to-rust/lib/clang/${ver}"
+              mkdir -p "$BUNDLED"
+              rm -rf "$BUNDLED/include"
+              cp -r "$SYS_RES/include" "$BUNDLED/include"
+              echo "✅ Copied clang headers: $SYS_RES/include -> $BUNDLED/include"
+            done
+          else
+            echo "⚠️ Could not find system clang headers"
+          fi
+
+          if [ -d ".opencode/skills/c-to-rust/agents" ]; then
+            mkdir -p .opencode/agents
+            cp -r .opencode/skills/c-to-rust/agents/* .opencode/agents/
+            echo "✅ Agents configured:"
+            ls -la .opencode/agents/
+          else
+            echo "⚠️ No agents directory in skill"
+          fi
+
+          echo "✅ c-to-rust skill ready"
+          ls -la .opencode/skills/c-to-rust/
+          .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
+
+      - name: Generate compile_commands.json with CMake
+        run: |
+          cd cjson/source
+          cmake -B build \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_C_COMPILER=clang
+          cp build/compile_commands.json compile_commands.json
+          echo "✅ compile_commands.json generated via CMake (BUILD_TESTING=OFF)"
+          cat compile_commands.json | python3 -m json.tool | head -30
+
+      - name: Fix compile_commands.json for C mode
+        run: |
+          # Add -x c -std=gnu99 to force C mode. cJSON is pure C89 so no
+          # atomics preprocessing is needed (unlike libuv).
+          python3 -c "
+          import json, re
+          with open('cjson/source/compile_commands.json') as f:
+              cmds = json.load(f)
+          for cmd in cmds:
+              args = cmd.get('arguments')
+              if args:
+                  if '-x' not in args:
+                      cmd['arguments'] = [args[0], '-x', 'c'] + args[1:]
+                  # Force gnu99 (c2rust prefers gnu99 over strict c99)
+                  cmd['arguments'] = [
+                      '-std=gnu99' if re.match(r'-std=(c|gnu)\d+', a) else a
+                      for a in cmd['arguments']
+                  ]
+              else:
+                  command = cmd.get('command', '')
+                  if command:
+                      if ' -x c ' not in command:
+                          sp = command.find(' ')
+                          if sp > 0:
+                              command = command[:sp] + ' -x c' + command[sp:]
+                      command = re.sub(r'-std=(c|gnu)\d+\b', '-std=gnu99', command)
+                      cmd['command'] = command
+          with open('cjson/source/compile_commands.json', 'w') as f:
+              json.dump(cmds, f, indent=2)
+          "
+          echo "✅ Fixed compile_commands.json (-x c, -std=gnu99)"
+          cat cjson/source/compile_commands.json | python3 -m json.tool | head -20
+
+      - name: Upload compile_commands.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-commands-cjson
+          path: cjson/source/compile_commands.json
+          retention-days: 7
+
+      - name: Initialize compile trajectory
+        run: |
+          : > /tmp/compile-trajectory.jsonl
+          echo "compile trajectory initialized"
+
+      - name: Configure providers
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          cat > opencode.json <<'EOF'
+          {
+            "provider": {
+              "deepseek": {
+                "api": "https://api.deepseek.com",
+                "options": {
+                  "apiKey": "${DEEPSEEK_API_KEY}"
+                }
+              },
+              "minimax": {
+                "npm": "@ai-sdk/openai-compatible",
+                "options": {
+                  "baseURL": "https://api.minimaxi.com/v1",
+                  "apiKey": "${MINIMAX_API_KEY}",
+                  "setCacheKey": true
+                },
+                "models": {
+                  "MiniMax-M2.7-highspeed": {
+                    "name": "MiniMax-M2.7-highspeed"
+                  }
+                }
+              }
+            }
+          }
+          EOF
+          sed -i "s|\${DEEPSEEK_API_KEY}|${DEEPSEEK_API_KEY}|g" opencode.json
+          sed -i "s|\${MINIMAX_API_KEY}|${MINIMAX_API_KEY}|g" opencode.json
+          echo "✅ opencode.json created"
+
+      - name: Run OpenCode conversion
+        run: |
+          export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
+          export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
+          export CLANG_CXX="clang++"
+
+          CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
+          CLANG_INCLUDE=""
+          if [ -n "$CLANG_VERSION" ]; then
+            for ver in "${CLANG_VERSION}" "${CLANG_VERSION}.0" "${CLANG_VERSION}.0.0"; do
+              candidate="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${ver}/include"
+              if [ -d "$candidate" ]; then
+                CLANG_INCLUDE="$candidate"
+                break
+              fi
+            done
+          fi
+
+          if [ -z "$CLANG_INCLUDE" ]; then
+            CLANG_INCLUDE=$(find /usr/lib/llvm-* -path "*/lib/clang/*/include" -type d 2>/dev/null | head -1)
+          fi
+
+          if [ -n "$CLANG_INCLUDE" ]; then
+            export CPATH="$CLANG_INCLUDE:${CPATH:-}"
+            export C_INCLUDE_PATH="$CLANG_INCLUDE:${C_INCLUDE_PATH:-}"
+            echo "✅ Set CPATH to $CLANG_INCLUDE"
+          fi
+
+          (
+            while true; do
+              sleep 300
+              SESSION_ID=$(opencode session list --format json 2>/dev/null | python3 -c "
+          import json, sys
+          try:
+              sessions = json.load(sys.stdin)
+              if sessions: print(sessions[0]['id'])
+          except: pass
+          " 2>/dev/null || echo "")
+              if [ -n "$SESSION_ID" ]; then
+                echo "=== Periodic session export (5min checkpoint) ===" >&2
+                opencode export "$SESSION_ID" 2>/dev/null | python3 -c "
+          import json, sys
+          try:
+              data = json.load(sys.stdin)
+              msgs = data.get('messages', []) if isinstance(data, dict) else []
+              for m in msgs[-5:]:
+                  role = m.get('role','?')
+                  content = str(m.get('content',''))[:500]
+                  print(f'  [{role}] {content}', file=sys.stderr)
+          except: pass
+          " 2>&1 || echo "  (export failed)" >&2
+              fi
+            done
+          ) &
+          EXPORT_PID=$!
+
+          opencode run \
+            --dangerously-skip-permissions \
+            --model "minimax/MiniMax-M2.7-highspeed" \
+            --agent build \
+            --title "cJSON C→Rust conversion" \
+            "使用 c-to-rust skill 重构 C 语言的 cjson 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) cjson/source/compile_commands.json 已预生成（-x c -std=gnu99），不要修改 compile_commands.json。cJSON 是纯 C89 单文件库（cJSON.c + cJSON.h），无 C11 原子、无平台代码、无系统库依赖，转换应当比 libuv 顺利。3) 输出目录必须是 rust-cjson/（不是 cjson-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。5) 如果 c2rust 因模块名 panic（例如 cJSON 模块名大小写问题），将输出文件重命名（如 cJSON_.rs）并在 lib.rs 用 #[path=\"...\"] 或 mod 显式声明，然后继续；其他 panic 则跳过该文件不要反复调试。"
+
+          kill $EXPORT_PID 2>/dev/null || true
+
+      - name: Verify tests compile
+        run: |
+          cd rust-cjson
+          cargo test --no-run 2>&1 | tee /tmp/test-compile.log
+
+      - name: Upload test-compile log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-compile-log-cjson
+          path: /tmp/test-compile.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Export opencode sessions
+        if: always()
+        run: |
+          export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
+          export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
+          mkdir -p /tmp/opencode-sessions
+          python3 scripts/export-all-sessions.py /tmp/opencode-sessions \
+            || echo "⚠️ export-all-sessions.py failed (non-fatal)"
+
+      - name: Upload opencode sessions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-sessions-cjson
+          path: /tmp/opencode-sessions/
+          retention-days: 30
+
+      - name: Upload compile trajectory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-trajectory-cjson
+          path: /tmp/compile-trajectory.jsonl
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload converted Rust code
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-cjson
+          path: rust-cjson/
+          retention-days: 7
+
+  # ============================================================
+  # Job 2: 评测转换结果
+  # ============================================================
+  evaluate:
+    name: "Evaluate: Compile + Test + FFI + Performance"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    needs: convert
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download converted Rust code
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-cjson
+          path: rust-cjson/
+
+      - name: Install system dependencies
+        continue-on-error: true
+        run: |
+          sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
+          sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
+          apt-get update && apt-get install -y bc python3 cmake
+
+      # --- 编译评测 ---
+      - name: "Evaluate: Compilation"
+        id: compile
+        run: |
+          bash cjson/scripts/compile.sh > /tmp/compile-result.json
+          echo "result-file=/tmp/compile-result.json" >> $GITHUB_OUTPUT
+
+      # --- 测试评测 ---
+      - name: "Evaluate: Tests"
+        id: tests
+        run: |
+          bash cjson/scripts/tests.sh > /tmp/test-result.json
+          echo "result-file=/tmp/test-result.json" >> $GITHUB_OUTPUT
+
+      # --- 功能等价评测 ---
+      - name: "Evaluate: FFI Equivalence"
+        id: equiv
+        run: |
+          bash cjson/scripts/equivalence.sh > /tmp/equiv-result.json 2>/tmp/equiv-detail.log
+          echo "result-file=/tmp/equiv-result.json" >> $GITHUB_OUTPUT
+
+      # --- 性能评测 ---
+      - name: "Evaluate: Performance"
+        id: perf
+        run: |
+          bash cjson/scripts/performance.sh > /tmp/perf-result.json 2>/tmp/perf-detail.log
+          echo "result-file=/tmp/perf-result.json" >> $GITHUB_OUTPUT
+
+      # --- 聚合评分 ---
+      - name: "Aggregate: Score"
+        id: score
+        run: |
+          python3 scripts/aggregate-score.py \
+            /tmp/compile-result.json \
+            /tmp/test-result.json \
+            /tmp/equiv-result.json \
+            /tmp/perf-result.json \
+            /tmp/eval-report.md \
+            cjson/eval-config.json
+
+      - name: Download compile trajectory
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: compile-trajectory-cjson
+          path: /tmp/convert-artifacts/
+          if-no-files-found: ignore
+
+      - name: Download opencode sessions
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-sessions-cjson
+          path: /tmp/convert-artifacts/opencode-sessions/
+          if-no-files-found: ignore
+
+      - name: Analyze conversion process
+        if: always()
+        run: |
+          SESSIONS_DIR=/tmp/convert-artifacts/opencode-sessions
+          if [ -d "$SESSIONS_DIR" ] && ls "$SESSIONS_DIR"/session-*.json >/dev/null 2>&1; then
+            python3 scripts/analyze-session.py \
+              "$SESSIONS_DIR" \
+              /tmp/convert-artifacts/compile-trajectory.jsonl \
+              >> /tmp/eval-report.md 2>/dev/null || true
+          else
+            echo "No session files found for analysis" >> /tmp/eval-report.md
+          fi
+
+      # --- 输出报告 ---
+      - name: "Report: Job Summary"
+        if: always()
+        run: |
+          if [ -f /tmp/eval-report.md ]; then
+            cat /tmp/eval-report.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ⚠️ 评测报告生成失败" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-cjson
+          path: |
+            /tmp/eval-report.md
+            /tmp/compile-result.json
+            /tmp/compile-detail.log
+            /tmp/test-result.json
+            /tmp/test-detail.log
+            /tmp/equiv-result.json
+            /tmp/equiv-detail.log
+            /tmp/perf-result.json
+            /tmp/perf-detail.log
+          retention-days: 30
+
+      - name: Fail if evaluation failed
+        if: steps.score.outcome == 'failure'
+        run: exit 1
