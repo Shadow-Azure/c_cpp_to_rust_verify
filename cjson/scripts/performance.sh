@@ -74,7 +74,7 @@ if [ -f "$C_BENCH_SRC" ]; then
   # Build C cJSON static library first (if not already built)
   if [ ! -f "$CJSON_DIR/build/libcjson.a" ]; then
     cd "$CJSON_DIR"
-    cmake -B build -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release >> "$C_BUILD_LOG" 2>&1
+    cmake -B build -DENABLE_CJSON_TEST=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release >> "$C_BUILD_LOG" 2>&1
     cmake --build build --config Release >> "$C_BUILD_LOG" 2>&1
     cd "$ROOT_DIR"
   fi

@@ -25,7 +25,7 @@ all: compare-c compare-rust
 c-lib:
 	@echo "=== Building C cJSON static library ==="
 	@mkdir -p $(BUILD_DIR)
-	cd $(CJSON_DIR) && cmake -B build -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+	cd $(CJSON_DIR) && cmake -B build -DENABLE_CJSON_TEST=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release
 	cmake --build $(CJSON_DIR)/build --config Release
 	cp $(CJSON_DIR)/build/libcjson.a $(BUILD_DIR)/libcjson_c.a
 	@echo "✅ C library built: $(BUILD_DIR)/libcjson_c.a"
