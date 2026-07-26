@@ -1,0 +1,11 @@
+# Performance benchmark metrics for libuv C→Rust evaluation
+metrics:
+  - name: timer_throughput
+    category: timer
+    description: "Timer create + fire throughput (10000 ops)"
+  - name: loop_overhead
+    category: loop
+    description: "Empty loop iteration overhead (10000 ops)"
+  - name: handle_init
+    category: handle
+    description: "Handle init + close cycle (10000 ops)"
