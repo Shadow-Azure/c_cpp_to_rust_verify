@@ -27,7 +27,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake make gcc bc python3 curl wget jq
+          sudo apt-get install -y clang cmake make gcc bc python3 curl wget jq libclang-18-dev
 
       - name: Install c2rust
         run: |
