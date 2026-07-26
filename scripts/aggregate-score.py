@@ -311,13 +311,13 @@ def main():
     equiv_file = sys.argv[3]
     perf_file = sys.argv[4]
     output_file = sys.argv[5] if len(sys.argv) > 5 else None
+    config_file = sys.argv[6] if len(sys.argv) > 6 else None
 
     # 加载评测配置
-    config_path = Path(compile_file).parent.parent / "eval-config.json"
     weights = {"compile": 0.40, "test": 0.20, "equivalence": 0.25, "performance": 0.15}
-    if config_path.exists():
+    if config_file and Path(config_file).exists():
         try:
-            with open(config_path) as f:
+            with open(config_file) as f:
                 cfg = json.load(f)
                 weights = cfg.get("weights", weights)
         except Exception:

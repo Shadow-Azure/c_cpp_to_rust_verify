@@ -9,10 +9,10 @@
 
 CC ?= gcc
 CFLAGS = -O0 -g3 -Wall -Wno-format
-INCLUDES = -I../flashdb/inc -I.
+INCLUDES = -I../source/inc -I.
 
 # FlashDB 源文件
-FDB_SRC_DIR = ../flashdb/src
+FDB_SRC_DIR = ../source/src
 FDB_SRCS = $(FDB_SRC_DIR)/fdb.c \
            $(FDB_SRC_DIR)/fdb_file.c \
            $(FDB_SRC_DIR)/fdb_kvdb.c \

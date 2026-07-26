@@ -3,13 +3,13 @@
 # (compare_tests.c) twice — once against each library — producing two binaries.
 # The eval harness runs both and diffs their stdout (two-binary comparison).
 
-ROOT_DIR   := $(shell cd .. && pwd)
-C_SRC_DIR  := $(ROOT_DIR)/flashdb/src
-C_INC_DIR  := $(ROOT_DIR)/flashdb/inc
+ROOT_DIR   := $(shell cd ../.. && pwd)
+C_SRC_DIR  := $(ROOT_DIR)/flashdb/source/src
+C_INC_DIR  := $(ROOT_DIR)/flashdb/source/inc
 RUST_DIR   := $(ROOT_DIR)/rust-flashdb
 
 CC         := cc
-C_TEST_DIR := $(ROOT_DIR)/flashdb/tests
+C_TEST_DIR := $(ROOT_DIR)/flashdb/source/tests
 # Force-include drv_log.h so FlashDB's FDB_PRINT log goes to stderr (not
 # stdout), keeping stdout reserved for the deterministic CASE lines the
 # equivalence diff compares.
@@ -49,8 +49,8 @@ rust-lib: $(RUST_LIB)
 $(RUST_LIB):
 	@if [ -d "$(RUST_DIR)" ] && [ -f "$(RUST_DIR)/Cargo.toml" ]; then \
 		cd $(RUST_DIR) && cargo build --release 2>&1; \
-		cp target/release/libflashdb.a $(ROOT_DIR)/ffi-compare/$(RUST_LIB) 2>/dev/null || \
-		cp target/release/libflashdb.rlib $(ROOT_DIR)/ffi-compare/$(RUST_LIB) 2>/dev/null || \
+		cp target/release/libflashdb.a $(ROOT_DIR)/flashdb/ffi-compare/$(RUST_LIB) 2>/dev/null || \
+		cp target/release/libflashdb.rlib $(ROOT_DIR)/flashdb/ffi-compare/$(RUST_LIB) 2>/dev/null || \
 		(echo "ERROR: Rust library not found after build"; exit 1); \
 	else \
 		echo "ERROR: rust-flashdb/ not found or no Cargo.toml"; \

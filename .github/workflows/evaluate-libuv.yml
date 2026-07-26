@@ -1,4 +1,4 @@
-name: FlashDB C→Rust Migration Evaluation
+name: libuv C→Rust Migration Evaluation
 
 on:
   workflow_dispatch:
@@ -11,21 +11,23 @@ env:
 
 jobs:
   # ============================================================
-  # Job 1: 使用 OpenCode + Skill 执行 C→Rust 转换 (Docker)
+  # Job 1: 使用 OpenCode + Skill 执行 C→Rust 转换
   # ============================================================
   convert:
-    name: "Convert: FlashDB C → Rust"
+    name: "Convert: libuv C → Rust"
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     environment: production
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang bear make gcc bc python3 curl wget jq
+          sudo apt-get install -y clang cmake make gcc bc python3 curl wget jq
 
       - name: Install c2rust
         run: |
@@ -34,7 +36,6 @@ jobs:
 
       - name: Install opencode
         run: |
-          # Install opencode from npm
           npm install -g opencode-ai
           opencode --version
 
@@ -43,6 +44,7 @@ jobs:
           opencode --version
           gh --version
           clang --version | head -1
+          cmake --version | head -1
           make --version | head -1
 
       - name: Cache c-to-rust skill
@@ -70,17 +72,13 @@ jobs:
 
       - name: Setup c-to-rust skill
         run: |
-          # Remove smoke-c2rust to avoid opencode loading wrong skill
           rm -rf .opencode/skills/smoke-c2rust
 
-          # Detect clang version and find include directory
           CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
           echo "Detected clang version: $CLANG_VERSION"
 
-          # Find the actual include directory (may have minor version like 14.0.0)
           SYS_RES=""
           if [ -n "$CLANG_VERSION" ]; then
-            # Try exact version first, then with .0.0 suffix
             for ver in "${CLANG_VERSION}" "${CLANG_VERSION}.0" "${CLANG_VERSION}.0.0"; do
               candidate="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${ver}"
               if [ -d "$candidate/include" ]; then
@@ -91,7 +89,6 @@ jobs:
             done
           fi
 
-          # Fallback: find any clang include directory
           if [ -z "$SYS_RES" ]; then
             SYS_RES=$(find /usr/lib/llvm-* -path "*/lib/clang/*/include" -type d 2>/dev/null | head -1 | sed 's|/include$||')
             if [ -n "$SYS_RES" ]; then
@@ -101,12 +98,10 @@ jobs:
 
           echo "SYS_RES=$SYS_RES exists=$(test -d "$SYS_RES/include" && echo yes || echo no)"
 
-          # Check if skill has bundled clang headers
           BUNDLED_RES=".opencode/skills/c-to-rust/lib/clang/${CLANG_VERSION}"
           echo "BUNDLED_RES=$BUNDLED_RES exists=$(test -d $BUNDLED_RES && echo yes || echo no)"
 
           if [ -n "$SYS_RES" ] && [ -d "$SYS_RES/include" ]; then
-            # Copy to bundled location for multiple possible version paths
             for ver in "${CLANG_VERSION}" "18" "15"; do
               BUNDLED=".opencode/skills/c-to-rust/lib/clang/${ver}"
               mkdir -p "$BUNDLED"
@@ -114,12 +109,10 @@ jobs:
               cp -r "$SYS_RES/include" "$BUNDLED/include"
               echo "✅ Copied clang headers: $SYS_RES/include -> $BUNDLED/include"
             done
-            ls "$BUNDLED_RES/include/" | head -5
           else
             echo "⚠️ Could not find system clang headers"
           fi
 
-          # Copy agents from skill to opencode config
           if [ -d ".opencode/skills/c-to-rust/agents" ]; then
             mkdir -p .opencode/agents
             cp -r .opencode/skills/c-to-rust/agents/* .opencode/agents/
@@ -132,57 +125,51 @@ jobs:
           echo "✅ c-to-rust skill ready"
           ls -la .opencode/skills/c-to-rust/
           .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
-          clang++ --version 2>&1 | head -3 || echo "clang++ check done"
 
-      - name: Generate compile_commands.json with bear
+      - name: Generate compile_commands.json with CMake
         run: |
-          cd flashdb/source
-          bear -- make -C tests clean all
-          echo "✅ compile_commands.json generated"
+          cd libuv/source
+          cmake -B build \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_C_COMPILER=clang
+          cp build/compile_commands.json compile_commands.json
+          echo "✅ compile_commands.json generated via CMake"
           cat compile_commands.json | python3 -m json.tool | head -30
 
       - name: Fix compile_commands.json for C mode
         run: |
-          # Bundled clang++ treats .c files as C++, causing void* implicit
-          # conversion errors. Add "-x c" to force C mode.
           python3 -c "
           import json
-          with open('flashdb/source/compile_commands.json') as f:
+          with open('libuv/source/compile_commands.json') as f:
               cmds = json.load(f)
           for cmd in cmds:
               args = cmd.get('arguments', [])
               if '-x' not in args:
-                  # Insert '-x c' after the compiler binary
                   cmd['arguments'] = [args[0], '-x', 'c'] + args[1:]
-          with open('flashdb/source/compile_commands.json', 'w') as f:
+          with open('libuv/source/compile_commands.json', 'w') as f:
               json.dump(cmds, f, indent=2)
           "
           echo "✅ Added -x c to compile_commands.json"
-          cat flashdb/source/compile_commands.json | python3 -m json.tool | head -20
+          cat libuv/source/compile_commands.json | python3 -m json.tool | head -20
 
       - name: Upload compile_commands.json
         uses: actions/upload-artifact@v4
         with:
-          name: compile-commands
-          path: flashdb/source/compile_commands.json
+          name: compile-commands-libuv
+          path: libuv/source/compile_commands.json
           retention-days: 7
 
       - name: Initialize compile trajectory
-        # Truncate any stale trajectory from a prior run. The compile-tracker
-        # OpenCode plugin (.opencode/plugins/compile-tracker.ts) appends one
-        # JSONL record per `cargo check` / `cargo build` invocation during the
-        # conversion, giving visibility into the codegen baseline -> each
-        # Phase 6 fix round -> final error count.
         run: |
           : > /tmp/compile-trajectory.jsonl
-          echo "compile trajectory initialized: /tmp/compile-trajectory.jsonl"
+          echo "compile trajectory initialized"
 
       - name: Configure providers
         env:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          # Create opencode.json with DeepSeek + MiniMax provider configuration
           cat > opencode.json <<'EOF'
           {
             "provider": {
@@ -208,10 +195,9 @@ jobs:
             }
           }
           EOF
-          # Replace placeholders with actual keys
           sed -i "s|\${DEEPSEEK_API_KEY}|${DEEPSEEK_API_KEY}|g" opencode.json
           sed -i "s|\${MINIMAX_API_KEY}|${MINIMAX_API_KEY}|g" opencode.json
-          echo "✅ opencode.json created with DeepSeek + MiniMax providers"
+          echo "✅ opencode.json created"
 
       - name: Run OpenCode conversion
         run: |
@@ -219,7 +205,6 @@ jobs:
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
           export CLANG_CXX="clang++"
 
-          # Find clang include directory (handle version suffix like 14.0.0)
           CLANG_VERSION=$(clang++ --version 2>/dev/null | grep -oP 'clang version \K[0-9]+' || echo "")
           CLANG_INCLUDE=""
           if [ -n "$CLANG_VERSION" ]; then
@@ -232,7 +217,6 @@ jobs:
             done
           fi
 
-          # Fallback: find any clang include directory
           if [ -z "$CLANG_INCLUDE" ]; then
             CLANG_INCLUDE=$(find /usr/lib/llvm-* -path "*/lib/clang/*/include" -type d 2>/dev/null | head -1)
           fi
@@ -241,13 +225,8 @@ jobs:
             export CPATH="$CLANG_INCLUDE:${CPATH:-}"
             export C_INCLUDE_PATH="$CLANG_INCLUDE:${C_INCLUDE_PATH:-}"
             echo "✅ Set CPATH to $CLANG_INCLUDE"
-          else
-            echo "⚠️ Clang include directory not found"
           fi
 
-          # Start a background session-export loop so that intermediate progress
-          # is visible in CI logs even if the run is killed by timeout.
-          # Every 5 minutes, export the latest session tail to stderr.
           (
             while true; do
               sleep 300
@@ -276,51 +255,30 @@ jobs:
           ) &
           EXPORT_PID=$!
 
-          # Run opencode. Structured tool-call summaries are provided by the
-          # ci-logger plugin (.opencode/plugins/ci-logger.ts) instead of the
-          # noisy --print-logs flag.
           opencode run \
             --dangerously-skip-permissions \
             --model "minimax/MiniMax-M2.7-highspeed" \
             --agent build \
-            --title "FlashDB C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 flashdb 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) flashdb/source/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），不要修改 compile_commands.json。3) 输出目录必须是 rust-flashdb/（不是 flashdb-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。"
+            --title "libuv C→Rust conversion" \
+            "使用 c-to-rust skill 重构 C 语言的 libuv 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) libuv/source/compile_commands.json 已预生成且已添加 -x c 标志（强制 C 模式），不要修改 compile_commands.json。3) 输出目录必须是 rust-libuv/（不是 libuv-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。"
 
-          # Stop the background export loop
           kill $EXPORT_PID 2>/dev/null || true
-
-      - name: Switch Rust to stable
-        if: false
-        run: |
-          if [ -f rust-flashdb/rust-toolchain.toml ]; then
-            cat > rust-flashdb/rust-toolchain.toml << 'EOF'
-          [toolchain]
-          channel = "stable"
-          EOF
-            echo "✅ Switched Rust to stable"
-          fi
-          cd rust-flashdb && rustup show active-toolchain
 
       - name: Verify tests compile
         run: |
-          cd rust-flashdb
+          cd rust-libuv
           cargo test --no-run 2>&1 | tee /tmp/test-compile.log
 
       - name: Upload test-compile log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-compile-log
+          name: test-compile-log-libuv
           path: /tmp/test-compile.log
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Export opencode sessions (main + subagents)
-        # Exports the top-level session AND every task-spawned subagent session.
-        # subagent sessions don't appear in `opencode session list`, so
-        # export-all-sessions.py harvests their IDs from the main session's
-        # task-tool outputs (<task id="ses_...">) and exports each by ID.
-        # Writes session-*.json + manifest.json into /tmp/opencode-sessions/.
+      - name: Export opencode sessions
         if: always()
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
@@ -333,40 +291,16 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-sessions
+          name: opencode-sessions-libuv
           path: /tmp/opencode-sessions/
           retention-days: 30
 
       - name: Upload compile trajectory
-        # One JSONL line per cargo check/build during the conversion.
-        # OBSERVABILITY ONLY — this plugin never affects scoring or pass/fail.
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: compile-trajectory
+          name: compile-trajectory-libuv
           path: /tmp/compile-trajectory.jsonl
-          retention-days: 30
-          if-no-files-found: ignore
-
-      - name: Upload incremental assembly errors
-        # Detailed per-module errors from translator assemble-incremental --errors-file.
-        # OBSERVABILITY ONLY — this file is never used for scoring.
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: incremental-errors
-          path: /tmp/incremental-errors.json
-          retention-days: 30
-          if-no-files-found: ignore
-
-      - name: Upload incremental progress
-        # Per-module progress from translator assemble-incremental --progress-file.
-        # OBSERVABILITY ONLY — this file is never used for scoring.
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: incremental-progress
-          path: /tmp/incremental-progress.json
           retention-days: 30
           if-no-files-found: ignore
 
@@ -374,62 +308,63 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rust-flashdb
-          path: rust-flashdb/
+          name: rust-libuv
+          path: rust-libuv/
           retention-days: 7
 
   # ============================================================
   # Job 2: 评测转换结果
   # ============================================================
   evaluate:
-    name: "Evaluate: Compile + Test + Performance"
+    name: "Evaluate: Compile + Test + FFI + Performance"
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     needs: convert
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Download converted Rust code
         uses: actions/download-artifact@v4
         with:
-          name: rust-flashdb
-          path: rust-flashdb/
+          name: rust-libuv
+          path: rust-libuv/
 
       - name: Install system dependencies
         continue-on-error: true
         run: |
-          # 使用阿里云镜像源加速下载
           sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
           sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
-          apt-get update && apt-get install -y bc python3
+          apt-get update && apt-get install -y bc python3 cmake
 
       # --- 编译评测 ---
       - name: "Evaluate: Compilation"
         id: compile
         run: |
-          bash flashdb/scripts/compile.sh > /tmp/compile-result.json
+          bash libuv/scripts/compile.sh > /tmp/compile-result.json
           echo "result-file=/tmp/compile-result.json" >> $GITHUB_OUTPUT
 
       # --- 测试评测 ---
       - name: "Evaluate: Tests"
         id: tests
         run: |
-          bash flashdb/scripts/tests.sh > /tmp/test-result.json
+          bash libuv/scripts/tests.sh > /tmp/test-result.json
           echo "result-file=/tmp/test-result.json" >> $GITHUB_OUTPUT
 
       # --- 功能等价评测 ---
       - name: "Evaluate: FFI Equivalence"
         id: equiv
         run: |
-          bash flashdb/scripts/equivalence.sh > /tmp/equiv-result.json 2>/tmp/equiv-detail.log
+          bash libuv/scripts/equivalence.sh > /tmp/equiv-result.json 2>/tmp/equiv-detail.log
           echo "result-file=/tmp/equiv-result.json" >> $GITHUB_OUTPUT
 
       # --- 性能评测 ---
       - name: "Evaluate: Performance"
         id: perf
         run: |
-          bash flashdb/scripts/performance.sh > /tmp/perf-result.json 2>/tmp/perf-detail.log
+          bash libuv/scripts/performance.sh > /tmp/perf-result.json 2>/tmp/perf-detail.log
           echo "result-file=/tmp/perf-result.json" >> $GITHUB_OUTPUT
 
       # --- 聚合评分 ---
@@ -442,13 +377,13 @@ jobs:
             /tmp/equiv-result.json \
             /tmp/perf-result.json \
             /tmp/eval-report.md \
-            flashdb/eval-config.json
+            libuv/eval-config.json
 
       - name: Download compile trajectory
         if: always()
         uses: actions/download-artifact@v4
         with:
-          name: compile-trajectory
+          name: compile-trajectory-libuv
           path: /tmp/convert-artifacts/
           if-no-files-found: ignore
 
@@ -456,13 +391,11 @@ jobs:
         if: always()
         uses: actions/download-artifact@v4
         with:
-          name: opencode-sessions
+          name: opencode-sessions-libuv
           path: /tmp/convert-artifacts/opencode-sessions/
           if-no-files-found: ignore
 
       - name: Analyze conversion process
-        # Analyze ALL sessions (main + subagents) via manifest.json, aggregating
-        # cost/tokens/tool stats across them. Pass the sessions directory.
         if: always()
         run: |
           SESSIONS_DIR=/tmp/convert-artifacts/opencode-sessions
@@ -483,15 +416,13 @@ jobs:
             cat /tmp/eval-report.md >> $GITHUB_STEP_SUMMARY
           else
             echo "## ⚠️ 评测报告生成失败" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "请检查转换 Job 的输出。" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Upload evaluation report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eval-report
+          name: eval-report-libuv
           path: |
             /tmp/eval-report.md
             /tmp/compile-result.json
