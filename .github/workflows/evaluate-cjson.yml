@@ -2,12 +2,24 @@ name: cJSON C→Rust Migration Evaluation
 
 on:
   workflow_dispatch:
+    inputs:
+      reuse_convert_run_id:
+        description: "If set, skip the OpenCode Convert job and download the rust-cjson artifact produced by this prior run ID (e.g. 30206846609). Evaluate then runs against the reused conversion with the current branch's eval scripts."
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 env:
-  SKILL_VERSION: v0.13.0
+  SKILL_VERSION: v0.16.4
+
+# REUSE_CONVERT is true when the dispatcher passed a prior run ID via
+# `reuse_convert_run_id`; in that case every conversion-only step is skipped
+# and the rust-cjson artifact is downloaded from the referenced run instead.
+# Eval-scripts (compile/test/equivalence/performance) always reflect the
+# current branch — this is what lets us iterate on the eval framework without
+# paying for another full conversion.
 
 jobs:
   # ============================================================
@@ -24,22 +36,47 @@ jobs:
         with:
           submodules: recursive
 
+      # --------------------------------------------------------
+      # REUSE PATH: download a prior run's rust-cjson artifact.
+      # --------------------------------------------------------
+      - name: Reuse prior Convert result (download rust-cjson artifact)
+        if: ${{ github.event.inputs.reuse_convert_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID="${{ github.event.inputs.reuse_convert_run_id }}"
+          echo "⏩ Skipping OpenCode conversion; reusing rust-cjson from run $RUN_ID"
+          mkdir -p rust-cjson
+          gh run download "$RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --name rust-cjson \
+            --dir rust-cjson
+          echo "✅ Downloaded rust-cjson artifact ($(du -sh rust-cjson | cut -f1))"
+          ls -la rust-cjson/ | head
+
+      # --------------------------------------------------------
+      # FRESH PATH: everything below is skipped when reusing.
+      # --------------------------------------------------------
       - name: Install system dependencies
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake make gcc bc python3 curl wget jq libclang-18-dev
 
       - name: Install c2rust
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           cargo install c2rust
           c2rust --version
 
       - name: Install opencode
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           npm install -g opencode-ai
           opencode --version
 
       - name: Verify environment
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           opencode --version
           gh --version
@@ -48,6 +85,7 @@ jobs:
           make --version | head -1
 
       - name: Cache c-to-rust skill
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         id: cache-skill
         uses: actions/cache@v4
         with:
@@ -55,7 +93,7 @@ jobs:
           key: c-to-rust-skill-${{ env.SKILL_VERSION }}-${{ runner.os }}
 
       - name: Download c-to-rust skill from release
-        if: steps.cache-skill.outputs.cache-hit != 'true'
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' && steps.cache-skill.outputs.cache-hit != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
@@ -71,6 +109,7 @@ jobs:
           echo "✅ c-to-rust skill downloaded and extracted"
 
       - name: Setup c-to-rust skill
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           rm -rf .opencode/skills/smoke-c2rust
 
@@ -127,6 +166,7 @@ jobs:
           .opencode/skills/c-to-rust/bin/ir --version 2>&1 || echo "ir version check done"
 
       - name: Generate compile_commands.json with CMake
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           cd cjson/source
           cmake -B build \
@@ -138,13 +178,22 @@ jobs:
           cat compile_commands.json | python3 -m json.tool | head -30
 
       - name: Fix compile_commands.json for C mode
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           # Add -x c -std=gnu99 to force C mode. cJSON is pure C89 so no
           # atomics preprocessing is needed (unlike libuv).
+          #
+          # Also strip GCC-specific warning flags (e.g. -Wformat-overflow) that
+          # clang doesn't recognise. Without this, c2rust-transpile fails because
+          # -Werror + -Wunknown-warning-option treats them as fatal errors.
           python3 -c "
           import json, re
           with open('cjson/source/compile_commands.json') as f:
               cmds = json.load(f)
+          # GCC-specific warning flags that clang doesn't understand.
+          GCC_WARN_FLAGS = ['-Wformat-overflow', '-Wformat-truncation',
+                            '-Wrestrict', '-Wstringop-overflow',
+                            '-Wstringop-truncation', '-Wmaybe-uninitialized']
           for cmd in cmds:
               args = cmd.get('arguments')
               if args:
@@ -155,6 +204,11 @@ jobs:
                       '-std=gnu99' if re.match(r'-std=(c|gnu)\d+', a) else a
                       for a in cmd['arguments']
                   ]
+                  # Strip GCC-specific warning flags
+                  cmd['arguments'] = [a for a in cmd['arguments'] if a not in GCC_WARN_FLAGS]
+                  # Prevent unknown-warning-option from being fatal
+                  if '-Wno-error=unknown-warning-option' not in cmd['arguments']:
+                      cmd['arguments'].append('-Wno-error=unknown-warning-option')
               else:
                   command = cmd.get('command', '')
                   if command:
@@ -163,14 +217,19 @@ jobs:
                           if sp > 0:
                               command = command[:sp] + ' -x c' + command[sp:]
                       command = re.sub(r'-std=(c|gnu)\d+\b', '-std=gnu99', command)
+                      for flag in GCC_WARN_FLAGS:
+                          command = command.replace(' ' + flag, '')
+                      if '-Wno-error=unknown-warning-option' not in command:
+                          command += ' -Wno-error=unknown-warning-option'
                       cmd['command'] = command
           with open('cjson/source/compile_commands.json', 'w') as f:
               json.dump(cmds, f, indent=2)
           "
-          echo "✅ Fixed compile_commands.json (-x c, -std=gnu99)"
+          echo "✅ Fixed compile_commands.json (-x c, -std=gnu99, stripped GCC warnings)"
           cat cjson/source/compile_commands.json | python3 -m json.tool | head -20
 
       - name: Upload compile_commands.json
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: compile-commands-cjson
@@ -178,11 +237,13 @@ jobs:
           retention-days: 7
 
       - name: Initialize compile trajectory
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           : > /tmp/compile-trajectory.jsonl
           echo "compile trajectory initialized"
 
       - name: Configure providers
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         env:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -217,6 +278,7 @@ jobs:
           echo "✅ opencode.json created"
 
       - name: Run OpenCode conversion
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
@@ -277,17 +339,18 @@ jobs:
             --model "minimax/MiniMax-M2.7-highspeed" \
             --agent build \
             --title "cJSON C→Rust conversion" \
-            "使用 c-to-rust skill 重构 C 语言的 cjson 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) cjson/source/compile_commands.json 已预生成（-x c -std=gnu99），不要修改 compile_commands.json。cJSON 是纯 C89 单文件库（cJSON.c + cJSON.h），无 C11 原子、无平台代码、无系统库依赖，转换应当比 libuv 顺利。3) 输出目录必须是 rust-cjson/（不是 cjson-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 5（跳过 Phase 4）。5) 如果 c2rust 因模块名 panic（例如 cJSON 模块名大小写问题），将输出文件重命名（如 cJSON_.rs）并在 lib.rs 用 #[path=\"...\"] 或 mod 显式声明，然后继续；其他 panic 则跳过该文件不要反复调试。"
+            "使用 c-to-rust skill 重构 C 语言的 cjson 工程为 rust 语言。注意：1) PATH 和 LD_LIBRARY_PATH 已配置好，ir/translator/clang++ 直接可用，不需要 Docker。2) cjson/source/compile_commands.json 已预生成（-x c -std=gnu99），不要修改 compile_commands.json。cJSON 是纯 C89 单文件库（cJSON.c + cJSON.h），无 C11 原子、无平台代码、无系统库依赖，转换应当比 libuv 顺利。3) 输出目录必须是 rust-cjson/（不是 cjson-rust/）。4) 必须按顺序执行 Phase 1、Phase 2、Phase 3、Phase 4、Phase 5。5) 如果 c2rust 因模块名 panic（例如 cJSON 模块名大小写问题），将输出文件重命名（如 cJSON_.rs）并在 lib.rs 用 #[path=\"...\"] 或 mod 显式声明，然后继续；其他 panic 则跳过该文件不要反复调试。"
 
           kill $EXPORT_PID 2>/dev/null || true
 
       - name: Verify tests compile
+        if: ${{ github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           cd rust-cjson
           cargo test --no-run 2>&1 | tee /tmp/test-compile.log
 
       - name: Upload test-compile log
-        if: always()
+        if: ${{ always() && github.event.inputs.reuse_convert_run_id == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: test-compile-log-cjson
@@ -296,7 +359,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Export opencode sessions
-        if: always()
+        if: ${{ always() && github.event.inputs.reuse_convert_run_id == '' }}
         run: |
           export PATH="$(pwd)/.opencode/skills/c-to-rust/bin:$PATH"
           export LD_LIBRARY_PATH="$(pwd)/.opencode/skills/c-to-rust/lib:${LD_LIBRARY_PATH:-}"
@@ -305,7 +368,7 @@ jobs:
             || echo "⚠️ export-all-sessions.py failed (non-fatal)"
 
       - name: Upload opencode sessions
-        if: always()
+        if: ${{ always() && github.event.inputs.reuse_convert_run_id == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: opencode-sessions-cjson
@@ -313,7 +376,7 @@ jobs:
           retention-days: 30
 
       - name: Upload compile trajectory
-        if: always()
+        if: ${{ always() && github.event.inputs.reuse_convert_run_id == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: compile-trajectory-cjson
