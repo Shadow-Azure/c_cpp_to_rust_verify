@@ -143,6 +143,11 @@ jobs:
           import json, re
           with open('libuv/source/compile_commands.json') as f:
               cmds = json.load(f)
+          # Filter out test files to avoid duplicate symbols when c2rust
+          # transpiles both src/foo.c and test/test-foo.c (same functions)
+          before = len(cmds)
+          cmds = [cmd for cmd in cmds if '/test/' not in cmd.get('file', '') and '/test/' not in cmd.get('command', '')]
+          print(f'Filtered test files: {before} -> {len(cmds)} entries')
           for cmd in cmds:
               args = cmd.get('arguments')
               if args:
@@ -166,7 +171,7 @@ jobs:
           with open('libuv/source/compile_commands.json', 'w') as f:
               json.dump(cmds, f, indent=2)
           "
-          echo "✅ Added -x c to compile_commands.json"
+          echo "✅ Fixed compile_commands.json (gnu99, -x c, test files filtered)"
           cat libuv/source/compile_commands.json | python3 -m json.tool | head -20
 
       - name: Upload compile_commands.json

@@ -34,7 +34,7 @@ log "--- Build output (first 200 lines) ---"
 echo "$BUILD_OUTPUT" | head -200 | tee -a "$LOG_FILE" >&2
 log "--- End build output ---"
 
-ERROR_COUNT=$(echo "$BUILD_OUTPUT" | grep -cE "^error(\[|$)" || true)
+ERROR_COUNT=$(echo "$BUILD_OUTPUT" | grep -cE "^error(\[|:|$)" || true)
 WARNING_COUNT=$(echo "$BUILD_OUTPUT" | grep -cE "^warning[\[: ]" || true)
 
 log "--- Parsed: errors=$ERROR_COUNT, warnings=$WARNING_COUNT ---"
