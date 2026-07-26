@@ -1,0 +1,14 @@
+# Performance benchmark metrics for cJSON C→Rust evaluation
+metrics:
+  - name: parse_small
+    category: parse
+    description: "Parse a small flat JSON object (10000 iterations)"
+  - name: parse_large
+    category: parse
+    description: "Parse a 1000-element array document (1000 iterations)"
+  - name: print_unformatted
+    category: print
+    description: "Compact-print round-trip of parsed large document (1000 iterations)"
+  - name: traverse
+    category: traverse
+    description: "Walk a 1000-element array summing numeric fields (1000 iterations)"

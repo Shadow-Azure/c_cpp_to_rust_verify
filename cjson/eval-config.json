@@ -1,0 +1,24 @@
+{
+  "weights": {
+    "compile": 0.40,
+    "test": 0.20,
+    "equivalence": 0.25,
+    "performance": 0.15
+  },
+  "compile": {
+    "check_warnings": false
+  },
+  "test": {
+    "require_all_pass": true,
+    "coverage_threshold": 0.0
+  },
+  "performance": {
+    "max_regression_ratio": 1.5,
+    "metrics": [
+      "parse_small",
+      "parse_large",
+      "print_unformatted",
+      "traverse"
+    ]
+  }
+}
