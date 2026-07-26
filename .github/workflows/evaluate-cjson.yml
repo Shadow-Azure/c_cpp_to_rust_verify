@@ -15,7 +15,7 @@ jobs:
   # ============================================================
   convert:
     name: "Convert: cJSON C → Rust"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     environment: production
     steps:
@@ -27,7 +27,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake make gcc bc python3 curl wget jq libclang-dev
+          sudo apt-get install -y clang cmake make gcc bc python3 curl wget jq libclang-18-dev
 
       - name: Install c2rust
         run: |
@@ -334,7 +334,7 @@ jobs:
   # ============================================================
   evaluate:
     name: "Evaluate: Compile + Test + FFI + Performance"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     needs: convert
     steps:
